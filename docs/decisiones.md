@@ -201,3 +201,10 @@ Pruebas en dry-run (`navigation.launch.py force_active:=true`, salida `/laika/sp
 - `/api/sport/request`: solo los 11 publicadores internos de Unitree.
 - AMCL acepta `robot_model_type: omnidirectional`.
 - Sin probar en vivo: R2+X y L2+Y reales (solo test unitario) y el watchdog del control.
+
+## 2026-11-16: fase 4, paso 2 en vivo (localización AMCL, el usuario camina con el control)
+
+- Pose inicial publicada en la marca (la de inicio de la fase 2: 0.03, 0.02, −14°).
+- Retorno a la marca según AMCL: (−0.065, −0.086) m y −13.3°, contra (0.032, 0.022) m y −13.6° al inicio. Error 0.145 m y 0.3°: dentro del límite de 0.15 m, por poco. Incluye el error de colocar el robot a mano.
+- Ajuste scan–mapa (haces a ≤ 0.10 m de una celda ocupada), 109 muestras: media 70 %, mínimo 50 %, sin desplomarse. No llega a 100 % porque hay muebles bajos y personas.
+- **Incidente:** el Ethernet de la externa (`enP8p1s0`) se cayó 3 veces entre 13:25:41 y 13:27:08 (link down/up). AMCL corre a bordo y no se afectó. En la navegación armada, el deadman detendría al robot ante una caída, pero hay que asegurar el conector o el cable.
