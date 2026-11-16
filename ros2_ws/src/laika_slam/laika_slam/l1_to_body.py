@@ -29,8 +29,8 @@ class L1ToBody(Node):
         self.scale, self.z2x, self.z2y = g('gyro_scale'), g('ang_z2x_proj'), g('ang_z2y_proj')
         self.zero_acc = g('zero_acc')
         self.offset = None  # ns; now() - stamp (los stamps de la .161 van atrasados)
-        self.cloud_pub = self.create_publisher(PointCloud2, '/utlidar/transformed_cloud', qos_profile_sensor_data)
-        self.imu_pub = self.create_publisher(Imu, '/utlidar/transformed_imu', qos_profile_sensor_data)
+        self.cloud_pub = self.create_publisher(PointCloud2, '/utlidar/transformed_cloud', 100)  # reliable: Point-LIO se suscribe con QoS por defecto
+        self.imu_pub = self.create_publisher(Imu, '/utlidar/transformed_imu', 100)  # reliable: Point-LIO se suscribe con QoS por defecto
         self.create_subscription(PointCloud2, g('cloud_topic'), self.cloud_cb, qos_profile_sensor_data)
         self.create_subscription(Imu, g('imu_topic'), self.imu_cb, qos_profile_sensor_data)
 
