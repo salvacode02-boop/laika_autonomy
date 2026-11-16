@@ -178,3 +178,10 @@ El usuario quiso probar, antes de montar el router, recibir los datos por el WiF
   - Externa → `.18` por WiFi: sin respuesta (ping y SSH).
   - Robot → `192.168.12.1`: responde (es una dirección de la propia `.161`). Robot → `192.168.12.125`: sin respuesta.
 - **Conclusión:** la `.161` no reenvía tráfico entre su WiFi y la red cableada. La `.161` es cerrada, así que no se puede activar. **El WiFi del robot no sirve para ROS: la fase 3 sigue con el router montado en el perro.**
+
+## 2026-11-16: fase 4, paso 0 y control remoto
+
+- Nav2 Foxy 0.4.7 instalado por `apt` en el robot (AMCL, map_server, NavFn, DWB, Regulated Pure Pursuit, recoveries, bt_navigator). No se clona `navigation2`: la rama Foxy es la misma versión. Los planeadores nuevos (Smac, MPPI) requieren Humble: si se necesitan, irían en la externa.
+- `laika-flip.service` deshabilitado por el usuario (`systemctl disable --now`). `~/laika_ws/flip3_trigger.py` deja solo L1+Y (BackFlip); respaldo en `flip3_trigger.py.bak`.
+- **Control remoto:** `/wirelesscontroller` no entrega pulsaciones (ni por ROS ni por el SDK). Se leen de `/lowstate` (`unitree_go/LowState`, ~500 Hz), campo `wireless_remote`: `keys = b[2] | b[3] << 8`. Medidos con el usuario: **R2+X = 1040** (activar autonomía), **L2+Y = 2080** (detener), R2 = 16, L2 = 32, Y = 2048.
+- `/api/sport/request` tiene 11 publicadores internos de Unitree (bare DDS); ninguno nuestro.
