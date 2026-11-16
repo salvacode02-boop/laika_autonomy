@@ -133,3 +133,14 @@ Limitaciones aceptadas:
 - La corrección es 2D (x, y, yaw).
 - Se depende del deskew de Unitree.
 - La cubierta de la mesa alta casi no se ve, por la geometría del L1 (a ~0.3 m del piso, mirando hacia abajo).
+
+## 2026-11-16: fase 2 revisada, prueba offline con el bag `cuarto1` (pasos 9.3.1–9.3.3)
+
+- `map3d_accumulator`: 4416 nubes procesadas, 0 descartadas, 141 819 vóxeles válidos (la prueba offline previa dio ~142 000). `/laika/map3d` a 0.5 Hz; 14–31 % de un núcleo. 9 avisos de salto de `map → odom` (cierres de lazo de `slam_toolbox`).
+- La entrada se suscribe con QoS **Reliable**: con best effort se perdían casi todas las nubes fragmentadas.
+- PCD binario de 1.7 MB con tamaño consistente: `maps/fase2_cuarto1_bag.pcd`.
+- **Criterio 3 (piso único):** la métrica del plan ("≥ 90 % de los vóxeles con z < 0.15 m en una banda de 15 cm") da 80–86 %, pero mide mal: cuenta también patas de sillas y la base de paredes y muebles. Con una medida directa, el piso es una sola lámina:
+  - mediana de z por celda de 1 m entre −0.075 y +0.025 m en 71 celdas;
+  - plano ajustado con 0.07° de inclinación;
+  - pico del histograma en −0.10..0.00 m.
+- **Criterio 3 revisado:** mediana de z del piso por celda de 1 m con un rango ≤ 0.10 m e inclinación ≤ 1°. Se cumple.
