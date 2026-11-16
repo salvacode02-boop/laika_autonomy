@@ -65,3 +65,16 @@ El usuario validó `maps/cuarto1` contra el cuarto real: "bastante bien".
 `chrony` (paso 12 del plan) **se omite** en la fase 1 por decisión del usuario. Con el ajuste de hora (D3 revisada) no bloquea nada. Se revisa en la fase 2.
 
 **Fase 1 terminada.**
+
+## 2026-11-16: fase 2, paso 0 (comprobaciones en el robot)
+
+| Comprobación | Resultado |
+|---|---|
+| Núcleos | `cpu/online` = 0-3, `nproc` = 4. Solo hay 4 núcleos activos (probablemente por el modo `nvpmodel`, que no se toca). Se corrige el "8 núcleos" de entradas anteriores: `odom_to_tf` a ~35 % es ~9 % del total, no ~5 %. |
+| `Python.h`, numpy | Presentes (numpy 1.17.4). |
+| `pcl_conversions`, `tf2_geometry_msgs`, cabeceras PCL 1.10 | Presentes. |
+| `pcl_ros` | No está: se quita del paquete de CMU (paso 5) o se aplica el plan B. |
+| `ros2 bag play --remap` | **Existe en Foxy.** |
+| Internet | Disponible por el teléfono del usuario (`usb0`). |
+
+**Cambio al plan (F9):** las reproducciones de bags se hacen en el **dominio 0** con `--remap` (`/utlidar/cloud` → `/bag/utlidar/cloud`, `/utlidar/imu` → `/bag/utlidar/imu`, `/utlidar/robot_odom` → `/bag/utlidar/robot_odom`), y `l1_to_body` recibe los tópicos de entrada como parámetro. El usuario prefiere mantener todo en el dominio 0. Ya no hace falta `ROS_DOMAIN_ID=42`. Regla: mientras se reproduce un bag no debe correr el `point_lio.launch.py` en vivo, porque ambos publicarían `/utlidar/transformed_*` y `/cloud_registered`.
