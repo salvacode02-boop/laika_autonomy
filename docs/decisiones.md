@@ -44,3 +44,11 @@ Usa ~30 % de un núcleo (Python, 150 msg/s). Eso es ~4 % de la CPU total de la O
 Con `angle_max: 1.75`, `pointcloud_to_laserscan` publica 200 haces y `slam_toolbox` calcula 201 por redondeo, así que rechaza todos los scans (`expected 201`). El valor 1.75003 hace que ambos cuenten 201. Si se cambia `angle_increment` o el rango, revisar este error en el log.
 
 Resultado de C2 con el robot quieto: 145–156 de 201 haces finitos (criterio ≥120), `/scan` a 5 Hz sin huecos (máx 0.204 s). `odom_to_tf` usa 31–45 % de un núcleo; se acepta (≈5 % de la CPU total).
+
+## 2026-11-16: prueba final de la fase 1
+
+- Recorrido del perímetro con cierre de lazo. Mapa en `maps/cuarto1.pgm` y `maps/cuarto1.yaml` (resolución 0.05, 330 × 200 celdas, ~16.5 × 10 m).
+- Paredes continuas y simples (1–2 celdas), esquinas a ~90°, sin paredes dobles visibles. Log del robot sin errores.
+- Valores finales: `min_height` efectivo por el filtro del acumulador (`z_min_rel` −0.12 respecto a la base, ≈ piso + 0.21); scan ±1.75003 rad a 0.0175 rad; ventana de 10 nubes a 5 Hz; `slam_toolbox` con los parámetros del plan, sin cambios.
+- Ruido conocido: el usuario se atravesó cerca del punto de inicio para acomodar el cable.
+- Bags en el robot: `~/laika_bags/caminata2` (886 MB) y `~/laika_bags/cuarto1` (1.6 GB).
