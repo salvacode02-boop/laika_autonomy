@@ -54,6 +54,7 @@ find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
+find_package(pcl_conversions REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_sensor_msgs REQUIRED)
@@ -98,7 +99,7 @@ add_executable(pointlio_mapping
   src/Estimator.cpp
 )
 
-ament_export_dependencies(rosidl_default_runtime geometry_msgs nav_msgs rclcpp rclpy std_msgs message_runtime)
+ament_export_dependencies(geometry_msgs nav_msgs rclcpp rclpy std_msgs)
 ament_target_dependencies(pointlio_mapping ${dependencies})
 target_include_directories(pointlio_mapping PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
