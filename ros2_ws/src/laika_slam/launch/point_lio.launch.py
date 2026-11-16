@@ -12,17 +12,16 @@ def generate_launch_description():
     l1_yaml = os.path.join(cfg, 'l1_to_body.yaml')
     bag = LaunchConfiguration('bag')
 
-    def l1(cond, cloud=None, imu=None):
-        params = [l1_yaml]
-        if cloud:
-            params.append({'cloud_topic': cloud, 'imu_topic': imu})
+    # Remap y no parámetros: en Foxy el yaml de l1_to_body gana sobre un override desde el launch.
+    def l1(cond, remaps=()):
         return Node(package='laika_slam', executable='l1_to_body', name='l1_to_body',
-                    output='screen', parameters=params, condition=cond)
+                    output='screen', parameters=[l1_yaml], remappings=list(remaps), condition=cond)
 
     return LaunchDescription([
         DeclareLaunchArgument('bag', default_value='false'),
         l1(UnlessCondition(bag)),
-        l1(IfCondition(bag), '/bag/utlidar/cloud', '/bag/utlidar/imu'),
+        l1(IfCondition(bag), [('/utlidar/cloud', '/bag/utlidar/cloud'),
+                              ('/utlidar/imu', '/bag/utlidar/imu')]),
         # El PCD se escribe al recibir SIGINT: darle tiempo para cerrar.
         Node(package='point_lio_unilidar', executable='pointlio_mapping', name='laserMapping',
              output='screen', parameters=[os.path.join(cfg, 'point_lio_utlidar.yaml')],
