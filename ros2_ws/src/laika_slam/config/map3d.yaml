@@ -1,0 +1,13 @@
+# Valores: docs/plan-fase2.md sección 9.1/9.2. Topics de entrada por remapping en el launch.
+map3d_accumulator:
+  ros__parameters:
+    voxel_size: 0.05
+    min_views: 2
+    z_min: -0.5
+    z_max: 2.5
+    merge_rate: 1.0
+    publish_rate: 0.5
+    tf_timeout: 1.0
+    jump_dist: 0.10
+    jump_deg: 2.0
+    pcd_path: ~/laika_maps/map3d.pcd
