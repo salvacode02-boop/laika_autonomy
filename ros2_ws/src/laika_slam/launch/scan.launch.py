@@ -9,5 +9,5 @@ def generate_launch_description():
     return LaunchDescription([
         Node(package='pointcloud_to_laserscan', executable='pointcloud_to_laserscan_node',
              name='pointcloud_to_laserscan', output='screen', parameters=[cfg],
-             remappings=[('cloud_in', '/utlidar/cloud_deskewed'), ('scan', '/scan')]),
+             remappings=[('cloud_in', '/laika/cloud_deskewed'), ('scan', '/scan')]),
     ])
