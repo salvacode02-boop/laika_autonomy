@@ -144,3 +144,12 @@ Limitaciones aceptadas:
   - plano ajustado con 0.07° de inclinación;
   - pico del histograma en −0.10..0.00 m.
 - **Criterio 3 revisado:** mediana de z del piso por celda de 1 m con un rango ≤ 0.10 m e inclinación ≤ 1°. Se cumple.
+
+## 2026-11-16: fase 2 en vivo (paso 9.3.4), fase 2 cerrada
+
+Caminata en el cuarto1 con `mapping.launch.py` + `map3d.launch.py` a bordo y RViz en la externa.
+- Retorno a la marca (`map → base_link`): inicio (0.034, 0.027) m, −13.6°; final (−0.046, 0.037) m, −12.1°. Error 8 cm y 1.5° (límite 15 cm). Cumple.
+- 8525 nubes, 0 descartadas; 160 985 puntos en `maps/fase2_cuarto1.pcd` (1.9 MB). Mapa 2D de la misma caminata: `maps/fase2_cuarto1.pgm/.yaml`.
+- Piso: inclinación 0.22°, mediana por celda en un rango de 0.15 m (criterio revisado: 0.10 m). **Aceptado por el usuario**; se atribuye al balanceo del cuerpo al caminar.
+- Pared derecha: banda de ~37 cm de grosor por encima de 1.3 m, delgada abajo; también apareció en el bag. Se interpreta como estructura real de la pared, no deriva (esquinas y parte baja salen simples).
+- **El usuario confirmó que los mapas quedaron bien: fase 2 terminada.** Pendiente para después: chrony y fase 3 (WiFi).
