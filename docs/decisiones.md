@@ -112,3 +112,24 @@ En los giros, el giroscopio integra ~0.86 del yaw de odom. Para distinguir escal
 La pendiente es ≈ 1: **no es error de escala**. El déficit es un **bias que aparece al caminar** (~−0.06 rad/s), que pesa más en el giro lento. Point-LIO estima el bias del giroscopio en línea, así que debería absorberlo. IMU confirmada a 249.9 Hz.
 
 Configuración inicial (criterio del advisor): `imu_R` = A + proyecciones, `gyro_scale` = 1.0. Variante de reserva si las paredes se emborronan al girar: rotación que lleva z_body al eje medido, con z2x = z2y = 0.
+
+## 2026-11-16: fase 2, se cambia Point-LIO por acumular `cloud_deskewed` corregida con `slam_toolbox`
+
+Point-LIO (port de CMU) falló con el bag `fase2_cuarto1` en tres intentos (plan 4.4):
+
+| Corrida | Resultado |
+|---|---|
+| Base (`filter_size` 0.1) | Yaw a la deriva desde el inicio (~0.25 rad/s); error de retorno 6.4 m |
+| `filter_size` 0.5 | Arranque estable; error de retorno 7.75 m; nube difusa |
+| 0.5 + `imu_en: false` | Diverge por completo (272 m) |
+
+Antes de eso se encontró y corrigió un bug: en Foxy, el yaml de `l1_to_body` ganaba sobre el override de parámetros del launch, así que con `bag:=true` se procesaba la nube en vivo. Ahora el launch usa remappings.
+
+Prueba offline de la alternativa (bag `cuarto1` de la fase 1): se acumuló `/utlidar/cloud_deskewed` (en `odom`) aplicándole el `map → odom` de `slam_toolbox` grabado en `/tf`, en vóxeles de 5 cm. Paredes simples y rectas, esquinas a 90°, la mesa del centro definida y las partes altas de las paredes por encima de 0.9 m. Con la odometría sola, las paredes salen dobles (hasta 10° de deriva de yaw).
+
+**Decisión (aprobada por el usuario):** la fase 2 usa un nodo a bordo que acumula `cloud_deskewed` en el marco `map` con la corrección de `slam_toolbox`, publica para RViz y guarda `.pcd`. Point-LIO y `l1_to_body` se quedan en el repo sin usarse.
+
+Limitaciones aceptadas:
+- La corrección es 2D (x, y, yaw).
+- Se depende del deskew de Unitree.
+- La cubierta de la mesa alta casi no se ve, por la geometría del L1 (a ~0.3 m del piso, mirando hacia abajo).
