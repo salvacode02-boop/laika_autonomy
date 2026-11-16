@@ -1,3 +1,5 @@
+import signal
+
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
@@ -107,9 +109,16 @@ class CmdVelToSport(Node):
         super().destroy_node()
 
 
+def _as_ctrl_c(*_):
+    raise KeyboardInterrupt
+
+
 def main():
     rclpy.init()
     node = CmdVelToSport()
+    # Cerrar tmux/ssh manda SIGHUP (o SIGTERM): tratarlo como Ctrl-C para que salga el StopMove.
+    signal.signal(signal.SIGHUP, _as_ctrl_c)
+    signal.signal(signal.SIGTERM, _as_ctrl_c)
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:

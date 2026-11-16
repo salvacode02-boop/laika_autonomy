@@ -7,7 +7,8 @@
 #
 # Al inicio solo corren: localización (mapa + AMCL), el puente en IDLE (no manda nada), RViz y la ventana de pose.
 # Con R2+X el puente pasa a ACTIVE y entonces arrancan Nav2 (en el robot) y la terminal de aprobación (aquí).
-# Ventanas: base, puente, nav, aprobar, pose, rviz.  Cambiar de ventana: Ctrl-b y el número, o Ctrl-b n.
+# Una ventana con 6 paneles: base, puente, nav, aprobar, pose, rviz (clic para elegir panel).
+# Cerrar todo: tmux kill-session -t laika4 (o kill-server); el puente manda StopMove al recibir SIGHUP.
 set -e
 D="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROBOT=unitree@192.168.123.18
@@ -32,12 +33,23 @@ ssh $ROBOT 'tmux ls 2>/dev/null' | grep -q . && { echo "Hay sesiones tmux en el 
 # Espera a que el puente pase a ACTIVE (R2+X). En el robot (Foxy) y aquí (Humble).
 ESPERA="until ros2 topic echo /laika/bridge_state 2>/dev/null | grep -m1 -q ACTIVE; do sleep 1; done"
 
-tmux new-session -d -s $S -n base "ssh -t $ROBOT \"$ENV_R && ros2 launch laika_slam localization.launch.py\"; read -p 'base terminó. Enter para cerrar'"
-tmux new-window -t $S -n puente "ssh -t $ROBOT \"$ENV_R && ros2 run laika_slam cmd_vel_to_sport --ros-args -r sport_request_out:=$SALIDA $EXTRA\"; read -p 'puente terminó. Enter para cerrar'"
-tmux new-window -t $S -n nav "ssh -t $ROBOT \"$ENV_R && echo 'Esperando R2+X para arrancar Nav2...' && $ESPERA && ros2 launch laika_slam nav2_servers.launch.py\"; read -p 'nav terminó. Enter para cerrar'"
-tmux new-window -t $S -n aprobar "$ENV_E && echo 'Esperando R2+X...' && $ESPERA && echo 'Activo: esta terminal es el hombre muerto (Ctrl-C = parar).' && python3 $D/aprobar_rutas.py; read -p 'aprobar terminó. Enter para cerrar'"
-tmux new-window -t $S -n pose "$ENV_E && sleep 20 && ros2 topic pub -t 3 -w 1 /initialpose geometry_msgs/msg/PoseWithCovarianceStamped \"$MARCA\" > /dev/null && echo 'Pose inicial en la marca publicada.' ; python3 $D/ver_pose.py"
-tmux new-window -t $S -n rviz "$D/rviz_fase4.sh"
-tmux select-window -t $S:aprobar
+# Todo en una sola ventana, en paneles con título. Cerrar tmux (kill-session/kill-server) corta los ssh:
+# los procesos del robot reciben SIGHUP y el puente lo trata como Ctrl-C (manda StopMove).
+P_BASE=$(tmux new-session -d -P -F '#{pane_id}' -s $S -n laika "ssh -t $ROBOT \"$ENV_R && ros2 launch laika_slam localization.launch.py\"; read -p 'base terminó. Enter para cerrar'")
+panel() {  # panel <título> <comando>
+  local id; id=$(tmux split-window -P -F '#{pane_id}' -t $S:laika "$2")
+  tmux select-pane -t "$id" -T "$1"; tmux select-layout -t $S:laika tiled > /dev/null; echo "$id"
+}
+tmux select-pane -t "$P_BASE" -T base
+panel puente "ssh -t $ROBOT \"$ENV_R && ros2 run laika_slam cmd_vel_to_sport --ros-args -r sport_request_out:=$SALIDA $EXTRA\"; read -p 'puente terminó. Enter para cerrar'" > /dev/null
+panel nav "ssh -t $ROBOT \"$ENV_R && echo 'Esperando R2+X para arrancar Nav2...' && $ESPERA && ros2 launch laika_slam nav2_servers.launch.py\"; read -p 'nav terminó. Enter para cerrar'" > /dev/null
+P_APR=$(panel aprobar "$ENV_E && echo 'Esperando R2+X...' && $ESPERA && echo 'Activo: este panel es el hombre muerto (Ctrl-C = parar).' && python3 $D/aprobar_rutas.py; read -p 'aprobar terminó. Enter para cerrar'")
+panel pose "$ENV_E && sleep 20 && ros2 topic pub -t 3 -w 1 /initialpose geometry_msgs/msg/PoseWithCovarianceStamped \"$MARCA\" > /dev/null && echo 'Pose inicial en la marca publicada.' ; python3 $D/ver_pose.py" > /dev/null
+panel rviz "$D/rviz_fase4.sh" > /dev/null
+tmux set-option -t $S pane-border-status top > /dev/null
+tmux set-option -t $S pane-border-format ' #{pane_title} ' > /dev/null
+tmux set-option -t $S mouse on > /dev/null  # clic para elegir panel
+tmux select-pane -t "$P_APR"
 echo "Sesión $S lista en modo $MODO. Presiona R2+X para arrancar la navegación."
+echo "Para cerrar todo: tmux kill-session -t $S   (o scripts/laika_fase4_parar.sh)"
 [ -n "$TMUX" ] && tmux switch-client -t $S || tmux attach -t $S

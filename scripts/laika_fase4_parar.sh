@@ -2,7 +2,10 @@
 # Detiene la sesión de scripts/laika_fase4.sh en orden: primero el puente (manda StopMove al cerrar), luego lo demás.
 S=laika4
 tmux has-session -t $S 2>/dev/null || { echo "No hay sesión $S."; exit 0; }
-for w in puente aprobar nav base pose rviz; do tmux send-keys -t $S:$w C-c 2>/dev/null; sleep 1; done
+for w in puente aprobar nav base pose rviz; do
+  id=$(tmux list-panes -t $S -F '#{pane_id} #{pane_title}' | awk -v w=$w '$2==w{print $1}')
+  [ -n "$id" ] && tmux send-keys -t "$id" C-c; sleep 1
+done
 sleep 3
 tmux kill-session -t $S
 # Por si algo quedó vivo en el robot (ssh cortado): mismo orden.
