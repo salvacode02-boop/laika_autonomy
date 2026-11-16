@@ -38,3 +38,9 @@ Usa ~30 % de un núcleo (Python, 150 msg/s). Eso es ~4 % de la CPU total de la O
 - Python vectorizado (numpy) en lugar de C++.
 - `slam_toolbox` sin cambios.
 - El objeto a 0.8–1.1 m del frente izquierdo era el usuario: los rangos del scan quedan validados.
+
+## 2026-11-16: `angle_max: 1.75003` en `pc2scan.yaml`
+
+Con `angle_max: 1.75`, `pointcloud_to_laserscan` publica 200 haces y `slam_toolbox` calcula 201 por redondeo, así que rechaza todos los scans (`expected 201`). El valor 1.75003 hace que ambos cuenten 201. Si se cambia `angle_increment` o el rango, revisar este error en el log.
+
+Resultado de C2 con el robot quieto: 145–156 de 201 haces finitos (criterio ≥120), `/scan` a 5 Hz sin huecos (máx 0.204 s). `odom_to_tf` usa 31–45 % de un núcleo; se acepta (≈5 % de la CPU total).
