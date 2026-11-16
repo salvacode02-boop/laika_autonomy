@@ -14,6 +14,7 @@ class OdomToTf(Node):
     def __init__(self):
         super().__init__('odom_to_tf')
         self.pub = self.create_publisher(TFMessage, '/tf', 100)
+        self.odom_pub = self.create_publisher(Odometry, '/laika/odom', 10)  # R3: stamp corregido para Nav2
         self.create_subscription(Odometry, '/utlidar/robot_odom', self.cb, qos_profile_sensor_data)
         self.cloud_pub = self.create_publisher(PointCloud2, '/laika/cloud_deskewed', qos_profile_sensor_data)
         self.create_subscription(PointCloud2, '/utlidar/cloud_deskewed', self.cloud_cb, qos_profile_sensor_data)
@@ -100,6 +101,8 @@ class OdomToTf(Node):
         t.transform.translation.z = msg.pose.pose.position.z
         t.transform.rotation = msg.pose.pose.orientation
         self.pub.publish(TFMessage(transforms=[t]))
+        msg.header.stamp = t.header.stamp
+        self.odom_pub.publish(msg)
 
 
 def main():
