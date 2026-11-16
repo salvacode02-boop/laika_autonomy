@@ -269,3 +269,69 @@ Cierre: commit de configs, `maps/fase2_cuarto1_5cm.pcd` y entrada en `docs/decis
 - [jizhang-cmu/autonomy_stack_go2, rama `foxy-humble`](https://github.com/jizhang-cmu/autonomy_stack_go2): [`utlidar.yaml`](https://raw.githubusercontent.com/jizhang-cmu/autonomy_stack_go2/foxy-humble/src/slam/point_lio_unilidar/config/utlidar.yaml), [`mapping_utlidar.launch`](https://raw.githubusercontent.com/jizhang-cmu/autonomy_stack_go2/foxy-humble/src/slam/point_lio_unilidar/launch/mapping_utlidar.launch), [`transform_everything.py`](https://raw.githubusercontent.com/jizhang-cmu/autonomy_stack_go2/foxy-humble/src/utilities/transform_sensors/transform_sensors/transform_everything.py), [`calibrate_imu.cpp`](https://raw.githubusercontent.com/jizhang-cmu/autonomy_stack_go2/foxy-humble/src/utilities/calibrate_imu/src/calibrate_imu.cpp)
 - [dfloreaa/point_lio_ros2](https://github.com/dfloreaa/point_lio_ros2), issues [#4 (Foxy)](https://github.com/dfloreaa/point_lio_ros2/issues/4) y [#15 (deriva con L1 en Go2 EDU)](https://github.com/dfloreaa/point_lio_ros2/issues/15)
 - [go2_description.urdf (unitree_ros)](https://raw.githubusercontent.com/unitreerobotics/unitree_ros/master/robots/go2_description/urdf/go2_description.urdf)
+
+## 9. Revisión (2026-11-16): acumulación de cloud_deskewed en map
+
+Sustituye a Point-LIO (ver `docs/decisiones.md`). La fase 1 no se modifica. Autor: `laika-advisor`; aprobada por el usuario.
+
+### 9.1 Decisiones
+
+| # | Decisión | Justificación |
+|---|---|---|
+| V1 | Nodo nuevo `map3d_accumulator` en `laika_slam` (Python + numpy), separado de `odom_to_tf`. | `odom_to_tf` es de un hilo y publica TF a 150 Hz; cargarlo retrasaría el TF de la fase 1. |
+| V2 | Entradas: `/utlidar/cloud_deskewed` cruda y `/tf` por suscripción directa (sin `tf2_ros`), filtrando `map → odom`. | La nube filtrada de `odom_to_tf` no sirve para 3D. |
+| V3 | A cada nube se le aplica el **último `map → odom` recibido**. No se usa lookup por stamp ni offset de reloj. | Es lo validado offline. La nube ya está en `odom` y la corrección cambia lento. Con bags, un lookup por stamp mezclaría tres relojes. |
+| V4 | Sin `map → odom`, o con el último recibido hace más de 1.0 s (tiempo de recepción): la nube se **descarta** y se avisa (throttle 5 s). | Mejor un hueco que una pared doble. |
+| V5 | Corrección 2D: yaw + (x, y); z sin cambios. | Es lo que entrega `slam_toolbox`. |
+| V6 | Topics de entrada por **remapping**, no por parámetro. | En Foxy el yaml ganó al override del launch. |
+
+### 9.2 Mapa y salidas
+
+| Elemento | Valor | Justificación |
+|---|---|---|
+| Vóxel | 0.05 m; clave int64 empaquetada | Prueba offline; igual a `cuarto1.pgm`. |
+| Conteo mínimo | visto en ≥ 2 nubes distintas (deduplicar dentro de cada nube) | Quita ruido suelto. |
+| Fusión | pendientes → mapa global a 1 Hz (`np.unique`) | Acota la CPU. |
+| Recorte | z ∈ [−0.5, 2.5] m; puntos finitos | Medido p1/p99: −0.20/1.65. |
+| Piso y zona cercana | **Se conservan** | El criterio 3 necesita piso; el vóxel ya limita la redundancia. |
+| `/laika/map3d` | `PointCloud2`, marco `map`, x y z float32, vóxeles válidos, 0.5 Hz, stamp `now()`; Reliable + Transient Local, depth 1 | ~140 000 pts ≈ 1.7 MB por mensaje (~0.85 MB/s). RViz abierto tarde recibe el último. |
+| Versión reducida (fase 3) | **No se implementa ahora** | Bastará un segundo publicador a 10 cm y 0.2 Hz. |
+| Guardado | Servicio `/laika/map3d/save` (`std_srvs/Trigger`) y también al cerrar; archivo temporal + renombrar | No depender solo del cierre (R6). |
+| Archivo | `~/laika_maps/map3d.pcd` (parámetro `pcd_path`); PCD v0.7 **binario**, campos x y z | ~1.7 MB: cabe en git sin reducir. Se omite intensity. |
+
+RViz (`rviz/fase2_map3d.rviz`, E): Fixed Frame `map`; PointCloud2 `/laika/map3d` (Reliable, Transient Local, color por Z); Map `/map`.
+
+### 9.3 Pasos
+
+| # | Máq. | Qué | Archivos | Prueba |
+|---|---|---|---|---|
+| 1 | E→R | Nodo, config, launch con argumento `bag` (remapea entradas a `/bag/...`), `setup.py`. Funciones puras (empaquetar, transformar) con prueba de asserts. `colcon build --packages-select laika_slam`. | `laika_slam/map3d_accumulator.py`, `config/map3d.yaml`, `launch/map3d.launch.py`, `test/test_map3d.py` | `python3 test/test_map3d.py` sin error; `ros2 pkg executables laika_slam` lista el nodo. |
+| 2 | R | Offline. **Sin `mapping.launch.py` corriendo.** Reproducir `cuarto1` remapeando **todos** sus tópicos (`/map`, `/scan`, `/tf`, `/tf_static`, `/utlidar/cloud_deskewed`, `/utlidar/robot_odom`) a `/bag/...`. Otro panel: `ros2 launch laika_slam map3d.launch.py bag:=true`. Reiniciar el nodo en cada reproducción. | n/a | `ros2 topic hz /laika/map3d` ≈ 0.5; log con 110 000–170 000 vóxeles válidos al final; `top`: menos de 50 % de un núcleo; `ros2 topic list` sin duplicados fuera de `/bag/`. |
+| 3 | R, E | Guardar y traer. Adaptar `traer_pcd.sh` a la ruta nueva. | `scripts/traer_pcd.sh`, `rviz/fase2_map3d.rviz`, `maps/fase2_cuarto1_bag.pcd` | `ros2 service call /laika/map3d/save std_srvs/srv/Trigger` da `success: true`; `head -n 11` muestra `POINTS` y tamaño = cabecera + POINTS × 12. Criterios 2 a 5 en RViz. |
+| 4 | R, E | **[APROBACIÓN: el usuario camina]** En vivo: `mapping.launch.py` en un panel y `map3d.launch.py` en otro; protocolo 4.1 sin giros de calibración; `save` antes de cerrar. | `maps/fase2_cuarto1.pcd`, `docs/decisiones.md` | 9.4 completo; `/scan` sigue a 5 Hz; `top` total menor a 2 núcleos. |
+
+### 9.4 Criterio de terminado
+
+| # | Criterio | Umbral |
+|---|---|---|
+| 1 | Retorno a la marca (`tf2_echo map base_link`, inicio y fin) | < 0.15 m horizontal; z de `odom` < 0.10 m |
+| 2 | Paredes simples (RViz, vista superior) | Grosor ≤ 10 cm, sin dobles |
+| 3 | Piso único | ≥ 90 % de los vóxeles con z < 0.15 m dentro de una banda de 15 cm |
+| 4 | Coincide con la fase 1 | Se superpone con `/map` / `maps/cuarto1.pgm` |
+| 5 | Lo que faltaba en 2D | Canto o cara inferior de la mesa alta y sus patas; paredes sobre 0.9 m |
+| 6 | Archivo | `.pcd` en `maps/`, `POINTS` coincide con el tamaño |
+
+### 9.5 Riesgos
+
+| # | Riesgo | Detección | Corrección |
+|---|---|---|---|
+| N1 | CPU (4 núcleos; `/tf` a ~200 Hz en Python) | `top`; `/scan` bajo 5 Hz | Procesar 1 de cada 2 nubes. |
+| N2 | RAM o mensaje creciente en áreas grandes | Conteo de vóxeles en el log | Bajar frecuencia; vóxel de publicación mayor. |
+| N3 | Deriva en z, roll, pitch sin corregir | Criterios 1 y 3 | Aceptada; caminatas cortas, piso plano. |
+| N4 | Cierre de lazo: lo ya acumulado no se recorrige | Aviso si `map → odom` salta más de 0.10 m o 2° | Aceptado; si hay paredes dobles, diagnóstico. |
+| N5 | TF faltante (slam caído) | Aviso V4; el conteo deja de crecer | Reiniciar la fase 1. |
+| N6 | Personas en movimiento dejan fantasmas | A la vista | Nadie cerca. |
+
+Sin verificar (se resuelve en las pruebas): que RViz dibuje la nube con Fixed Frame `map` cuando el bag no publica `map` en `/tf` (está remapeado); los umbrales de CPU, de la banda del piso y del aviso de salto son iniciales.
+
+**Obsoleto del plan original:** decisiones F1–F3 y F7–F10, pasos 1–9 y 11, secciones 3.1–3.3, 4.2–4.4 y 5, y riesgos R1–R4, R6, R8–R10; el paso 10 (`pcl-tools`) pasa a opcional.
