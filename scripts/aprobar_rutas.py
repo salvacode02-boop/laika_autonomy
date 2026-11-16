@@ -30,7 +30,7 @@ class Aprobar(Node):
         self.create_subscription(PoseStamped, '/goal_pose', self.goal_cb, 10)
         self.create_subscription(Path, '/plan', self.plan_cb, 10)
         self.create_subscription(Twist, '/cmd_vel', self.cmd_cb, 10)
-        self.create_subscription(String, '/laika/bridge_state', lambda m: setattr(self, 'state', m.data), 10)
+        self.create_subscription(String, '/laika/bridge_state', self.state_cb, 10)
         self.last_plan = None
         self.key = None        # meta actual
         self.pending = False   # meta nueva sin plan mostrado
@@ -39,9 +39,17 @@ class Aprobar(Node):
         self.state, self.vel = '?', (0.0, 0.0)
         self.create_timer(0.2, self.tick)
 
+    def state_cb(self, m):
+        if m.data.startswith('SC:') and not self.state.startswith('SC:'):
+            print('\nSIN CABLE: Ctrl-C aquí NO detiene; usa L2+Y.')
+        self.state = m.data
+
     def goal_cb(self, m):
         p = m.pose
-        self.key = goal_key(p.position.x, p.position.y, p.orientation.z, p.orientation.w)
+        key = goal_key(p.position.x, p.position.y, p.orientation.z, p.orientation.w)
+        if key == self.key and self.state.startswith('SC:'):
+            return  # eco de la meta republicada por el puente al pasar a RUN: no pedir Enter otra vez
+        self.key = key
         self.yaw = 2 * math.atan2(p.orientation.z, p.orientation.w)
         self.gxy = (p.position.x, p.position.y)
         self.approved, self.pending, self.waiting = '', True, False
@@ -79,7 +87,8 @@ class Aprobar(Node):
         if self.waiting and select.select([sys.stdin], [], [], 0)[0]:
             sys.stdin.readline()
             self.approved, self.waiting = self.key, False
-            print('Aprobada.')
+            print('Aprobada: desconecta el cable, espera 10 s y presiona R2+X.' if self.state.startswith('SC:')
+                  else 'Aprobada.')
         self.appr.publish(String(data=self.approved))
         print('\rvx=%.2f wz=%.2f  puente=%-7s ' % (*self.vel, self.state), end='', flush=True)
 
