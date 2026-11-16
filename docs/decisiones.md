@@ -185,3 +185,19 @@ El usuario quiso probar, antes de montar el router, recibir los datos por el WiF
 - `laika-flip.service` deshabilitado por el usuario (`systemctl disable --now`). `~/laika_ws/flip3_trigger.py` deja solo L1+Y (BackFlip); respaldo en `flip3_trigger.py.bak`.
 - **Control remoto:** `/wirelesscontroller` no entrega pulsaciones (ni por ROS ni por el SDK). Se leen de `/lowstate` (`unitree_go/LowState`, ~500 Hz), campo `wireless_remote`: `keys = b[2] | b[3] << 8`. Medidos con el usuario: **R2+X = 1040** (activar autonomía), **L2+Y = 2080** (detener), R2 = 16, L2 = 32, Y = 2048.
 - `/api/sport/request` tiene 11 publicadores internos de Unitree (bare DDS); ninguno nuestro.
+
+## 2026-11-16: fase 4, pasos 2-4 en dry-run (robot quieto)
+
+Correcciones al puente `cmd_vel_to_sport` antes de cualquier prueba armada:
+- Lee el control de **`/lf/lowstate`** (20 Hz) en vez de `/lowstate` (500 Hz): CPU del puente de ~70 % a ~8 %.
+- **Paro por bits:** L2+Y detiene si están los bits de L2 (32) y de Y (2048), aunque haya otros botones presionados. Activar exige exactamente R2+X (1040). El paro gana siempre.
+- **Watchdog del control:** en ACTIVE, más de 0.5 s sin `/lf/lowstate` → StopMove 1 s e IDLE (sin control no hay botón de paro).
+
+Pruebas en dry-run (`navigation.launch.py force_active:=true`, salida `/laika/sport_request_dry`):
+- Meta a 1 m: `/plan` de 46 puntos (1.31 m). Move (1008) empieza 0.1 s después del Enter.
+- Ctrl-C de `aprobar_rutas.py` (deadman): StopMove (1003) durante 0.9 s a partir de 0.6 s del Ctrl-C, luego silencio. La latencia la fija el timeout de 0.5 s + el tick de 0.1 s.
+- Meta nueva: ningún Move durante 7 s hasta el nuevo Enter.
+- Ctrl-C del puente: 3 StopMove al cerrar.
+- `/api/sport/request`: solo los 11 publicadores internos de Unitree.
+- AMCL acepta `robot_model_type: omnidirectional`.
+- Sin probar en vivo: R2+X y L2+Y reales (solo test unitario) y el watchdog del control.

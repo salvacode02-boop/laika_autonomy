@@ -31,6 +31,7 @@ class Aprobar(Node):
         self.create_subscription(Path, '/plan', self.plan_cb, 10)
         self.create_subscription(Twist, '/cmd_vel', self.cmd_cb, 10)
         self.create_subscription(String, '/laika/bridge_state', lambda m: setattr(self, 'state', m.data), 10)
+        self.last_plan = None
         self.key = None        # meta actual
         self.pending = False   # meta nueva sin plan mostrado
         self.waiting = False   # plan mostrado, esperando Enter
@@ -45,9 +46,15 @@ class Aprobar(Node):
         self.gxy = (p.position.x, p.position.y)
         self.approved, self.pending, self.waiting = '', True, False
         self.appr.publish(String(data=''))  # invalida la aprobacion anterior
+        if self.last_plan:
+            self.plan_cb(self.last_plan)  # el plan pudo llegar antes que la meta
 
     def plan_cb(self, m):
+        self.last_plan = m
         if not self.pending or len(m.poses) < 2:
+            return
+        e = m.poses[-1].pose.position  # ignora planes de la meta anterior
+        if math.dist((e.x, e.y), self.gxy) > 0.5:
             return
         n = len(m.poses)
         L = sum(math.dist((a.pose.position.x, a.pose.position.y), (b.pose.position.x, b.pose.position.y))
