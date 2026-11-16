@@ -5,15 +5,16 @@ Todo lo que dice "verificado" fue comprobado en el robot real el 2026-11-15.
 
 ## Objetivo
 
-Construir la autonomía del robot por fases. **La fase actual es la 1.**
+Construir la autonomía del robot por fases. **La fase actual es la 4** (autonomía por cable, plan en `docs/plan-fase4.md`). Las fases 1 y 2 están terminadas; la 3 está pospuesta (el WiFi del Go2 no reenvía y no hay router con alimentación).
 
 | Fase | Meta | Criterio de "terminado" |
 |---|---|---|
 | **1** | Mapa **2D** con `slam_toolbox`, visible en RViz en la Jetson externa, por **Ethernet** | El usuario camina el robot con el control por un cuarto; el mapa en RViz queda consistente (sin paredes dobles) y se guarda en archivo (`.pgm` + `.yaml`) |
 | 2 | Mapa **3D** con Point-LIO adaptado por Unitree para el L1 (`point_lio_unilidar`, buscar port a ROS 2) | Nube 3D consistente en RViz y guardada en `.pcd` |
-| 3 | Pasar la visualización a **WiFi** (router montado en el perro) | Lo mismo que fases 1 y 2, desde la red WiFi |
+| 3 | Pasar la visualización a **WiFi** (router montado en el perro) | Lo mismo que fases 1 y 2, desde la red WiFi (pospuesta) |
+| **4** | **Autonomía por cable**: Nav2 + AMCL sobre `maps/fase2_cuarto1`, ir a una pose dada en RViz | 3 metas seguidas a ≤ 0.25 m y ≤ 15°, una con obstáculo, sin contacto, y una parada probada en plena marcha |
 
-Fuera de alcance por ahora: navegación autónoma (Nav2) y que el robot se mueva solo.
+Fuera de alcance por ahora: operación sin supervisión, exploración, waypoints, obstáculos dinámicos, marcha atrás.
 
 ## Hardware y red
 
@@ -97,8 +98,15 @@ Principio de diseño: **el SLAM corre a bordo** (Jetson del robot). La Jetson ex
 
 ## Reglas de seguridad (obligatorias)
 
-- **Nunca** publiques en `/api/sport/request` ni en `/lowcmd`, ni uses `SportClient`, sin aprobación explícita del usuario. La fase 1 es solo de lectura: el usuario mueve el robot con el control.
-- En el robot corre `laika-flip.service` (systemd): dispara saltos con combinaciones del control. **No lo modifiques.** Si alguna vez molesta, pregunta antes de detenerlo.
+- **Nunca** publiques en `/lowcmd` ni uses `SportClient`. En `/api/sport/request` solo publica el nodo `cmd_vel_to_sport` (IDs 1008 Move y 1003 StopMove), y solo arrancado con `armed:=true` en una prueba que el usuario aprobó explícitamente. Cada prueba con publicación real o en la que el robot camine solo necesita su propia aprobación del usuario.
+- `laika-flip.service` (systemd) y `~/laika_ws/flip*_trigger.py` disparan saltos con combinaciones del control. El 2026-11-16 el usuario autorizó: dejar en `flip3_trigger.py` solo L1+Y (BackFlip) y deshabilitar el proceso por ahora. Fuera de eso, **no los modifiques** sin preguntar.
+
+### Consideraciones del usuario para la fase 4 (2026-11-16)
+- El usuario prueba **solo**: el control remoto es su parada en mano.
+- **R2+X** activa el modo autónomo desde el control (combinación sin otro uso).
+- **L2+Y** detiene el movimiento autónomo: manda StopMove y desactiva la autonomía, **sin apagar ni desplomar al robot** (nunca Damp). Siempre detiene; nunca arranca.
+- Por ahora, cada ruta nueva se muestra en RViz (ruta planeada y velocidad de corrección) y la terminal pide **confirmar con Enter** antes de ejecutarla. Es temporal, para medir reacción y precisión del planeador; después se quita.
+- Primeras pruebas con trayectorias cortas (1 m, 2 m), con el botón de paro activo.
 - Pregunta antes de: instalar paquetes con `sudo` en el robot, editar `~/.bashrc` del robot, reiniciar el robot, o tocar servicios systemd.
 - Si una prueba requiere que el robot camine, **pídeselo al usuario** y espera su confirmación.
 
