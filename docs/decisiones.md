@@ -28,3 +28,13 @@ Usa ~30 % de un núcleo (Python, 150 msg/s). Eso es ~4 % de la CPU total de la O
 - `slam_toolbox` 2.4.1 (Foxy) estampa `map → odom` con `now()`; con stamps ~2060 s atrasados, `map → base_link` no tiene tiempo común y /scan no se dibuja.
 - Un offset único (`now() - stamp` del primer mensaje de odometría) aplicado a TF y nube conserva la alineación odom/nube; `odom_to_tf` lo recalcula si se desvía >0.5 s y republica la nube en `/laika/cloud_deskewed`.
 - Se descartó cambiar el reloj del sistema y compilar `slam_toolbox` desde código.
+
+## 2026-11-16: C2 aplicada
+
+- Motivo: en una caminata corta sin paredes el scan tenía solo 77/720 haces con rango; además el scan solo ve ~180° al frente.
+- Ventana deslizante de 10 nubes a 5 Hz, publicada en `/laika/cloud_deskewed` por `odom_to_tf`.
+- Filtro de altura en `odom` (z - z_base en [-0.12, 0.50], distancia horizontal ≥ 0.6 m); sustituye a C1.
+- Scan frontal ±1.75 rad a 1° (201 haces), `min_height -0.3`, `max_height 0.6`, `range_min 0.6`.
+- Python vectorizado (numpy) en lugar de C++.
+- `slam_toolbox` sin cambios.
+- El objeto a 0.8–1.1 m del frente izquierdo era el usuario: los rangos del scan quedan validados.
