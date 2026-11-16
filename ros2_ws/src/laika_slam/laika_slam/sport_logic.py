@@ -3,7 +3,7 @@ import math
 
 KEYS_ACTIVATE = 1040  # R2+X (medido en /lowstate)
 KEYS_STOP = 2080      # L2+Y
-VX_MAX, WZ_MAX = 0.25, 0.5
+VX_MAX, WZ_MAX = 0.4, 0.5  # 0.4 aprobado por el usuario para medir el umbral de marcha (fase 4, paso 6)
 CMD_TIMEOUT, DEADMAN_TIMEOUT, STOP_BURST = 0.3, 0.5, 1.0
 LOWSTATE_TIMEOUT = 0.5  # sin /lf/lowstate (20 Hz) no hay botón de paro: se detiene
 
