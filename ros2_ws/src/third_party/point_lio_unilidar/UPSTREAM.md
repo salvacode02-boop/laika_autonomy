@@ -12,6 +12,7 @@
 2. `CMakeLists.txt`: quitado `find_package` de PCL-ROS y PCL-ROS (2 apariciones) de `set(dependencies ...)`.
 3. `package.xml`: quitados `depend` de PCL-ROS, `build_depend message_generation`, `build_export_depend message_runtime`, `exec_depend message_runtime` y `exec_depend transform_sensors`.
 4. Añadido `PCD/.gitkeep`.
+5. `CMakeLists.txt`: añadido `find_package(pcl_conversions REQUIRED)` (antes llegaba vía pcl_ros); `ament_export_dependencies` sin `rosidl_default_runtime` ni `message_runtime`. `package.xml`: añadido `depend pcl_conversions`. Compila en Foxy (R) en ~1m40s con `-j2`.
 
 ## Notas
 
