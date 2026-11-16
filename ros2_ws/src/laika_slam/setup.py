@@ -19,5 +19,8 @@ setup(
     maintainer_email='laika@example.com',
     description='TF y SLAM 2D para Laika',
     license='MIT',
-    entry_points={'console_scripts': ['odom_to_tf = laika_slam.odom_to_tf:main']},
+    entry_points={'console_scripts': [
+        'odom_to_tf = laika_slam.odom_to_tf:main',
+        'l1_to_body = laika_slam.l1_to_body:main',
+    ]},
 )
