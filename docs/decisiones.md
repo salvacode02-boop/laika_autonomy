@@ -52,3 +52,16 @@ Resultado de C2 con el robot quieto: 145–156 de 201 haces finitos (criterio �
 - Valores finales: `min_height` efectivo por el filtro del acumulador (`z_min_rel` −0.12 respecto a la base, ≈ piso + 0.21); scan ±1.75003 rad a 0.0175 rad; ventana de 10 nubes a 5 Hz; `slam_toolbox` con los parámetros del plan, sin cambios.
 - Ruido conocido: el usuario se atravesó cerca del punto de inicio para acomodar el cable.
 - Bags en el robot: `~/laika_bags/caminata2` (886 MB) y `~/laika_bags/cuarto1` (1.6 GB).
+
+## 2026-11-16: revisión del mapa final por el usuario y cierre de la fase 1
+
+El usuario validó `maps/cuarto1` contra el cuarto real: "bastante bien".
+- **Puerta de cristal:** bien detectada como obstáculo, con el exterior como espacio libre.
+- **Hueco detrás del usuario y las sillas (zona de inicio):** bien detectado como libre.
+- **Mesa alta del centro (~1.5–2 m, con ~40 cm libres debajo):** solo aparece la estructura inferior central. La cubierta que sobresale no aparece. Es una limitación del diseño: el filtro conserva puntos hasta 0.50 m sobre la base (≈0.82 m sobre el piso), y hacia los lados el L1 solo ve por debajo de su altura. Para el robot ese espacio sí es transitable, salvo que la altura libre sea menor a la del Go2.
+- **Patas delgadas de la mesa alta junto al inicio:** detección parcial. Es esperable con un scan de 1°, 5 Hz y objetos de pocos cm.
+- **Pendiente para la fase 2:** la nube 3D (Point-LIO) resuelve mesas y voladizos. Si se usa Nav2 con el mapa 2D, considerar un `max_height` igual a la altura del robot más un margen.
+
+`chrony` (paso 12 del plan) **se omite** en la fase 1 por decisión del usuario. Con el ajuste de hora (D3 revisada) no bloquea nada. Se revisa en la fase 2.
+
+**Fase 1 terminada.**
