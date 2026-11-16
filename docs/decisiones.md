@@ -78,3 +78,23 @@ El usuario validó `maps/cuarto1` contra el cuarto real: "bastante bien".
 | Internet | Disponible por el teléfono del usuario (`usb0`). |
 
 **Cambio al plan (F9):** las reproducciones de bags se hacen en el **dominio 0** con `--remap` (`/utlidar/cloud` → `/bag/utlidar/cloud`, `/utlidar/imu` → `/bag/utlidar/imu`, `/utlidar/robot_odom` → `/bag/utlidar/robot_odom`), y `l1_to_body` recibe los tópicos de entrada como parámetro. El usuario prefiere mantener todo en el dominio 0. Ya no hace falta `ROS_DOMAIN_ID=42`. Regla: mientras se reproduce un bag no debe correr el `point_lio.launch.py` en vivo, porque ambos publicarían `/utlidar/transformed_*` y `/cloud_registered`.
+
+## 2026-11-16: Fase 2 paso 3: calibración de la IMU
+
+Análisis offline de `~/laika_bags/fase2_cuarto1` con `scripts/analizar_imu.py` (copia del bag en la externa, fuera del repo). Tramos detectados con odom: quieto 1–36.6 s; giros 37.6–90.3 s (con pausas; desplazamiento máx 0.14 m; yaw de odom 12.75 rad ≈ 4π). `twist.angular` de odom viene con datos (se usó).
+
+| | A | B |
+|---|---|---|
+| corr (x, y, z) con odom | 0.73, 0.28, **0.987** | 0.46, −0.28, −0.96 |
+| integral w.z en giros | 10.17 rad (0.80 × yaw odom) | −9.17 rad |
+| `gyro_bias` (body) | (0.0075, −0.0005, 0.0016) | (0.0073, 0.0005, 0.0024) |
+| `ang_z2x_proj` / `ang_z2y_proj` | 0.075 / −0.227 | 0.486 / −0.252 |
+| acel. quieta en body | (5.01, 0.00, −8.80) no vertical | (−0.10, 0.00, 10.13) vertical |
+
+- **Candidata elegida: A** (única con corr_z ≥ 0.9 y signo positivo en giros a la izquierda; B sale con signo negativo). Para el giroscopio manda este criterio; la aceleración con A no es vertical, pero `zero_acc: true` la anula. Confirma que acelerómetro y giroscopio no comparten convención (el temor del plan).
+- B descartada además por |z2x| = 0.49 > 0.3.
+- **Valores para `l1_to_body`:** `imu_R` = A; `gyro_bias` = (0.0075, −0.0005, 0.0016); `ang_z2x_proj` = 0.075; `ang_z2y_proj` = −0.227.
+- **Unidades:** m/s² para el acelerómetro (|a| = 10.13). **Giroscopio: la integral de A es 20 % menor que el yaw de odom (criterio ±5 % NO cumplido).** Integral de `twist.z` de odom = 12.28 (yaw de orientación 12.75), así que odom es consistente consigo mismo. Pendiente de aclarar: factor de escala del giroscopio (~1.23–1.25) o subestimación; no es deg/s (el factor sería 57). Se reporta al orquestador; no se aplica escala sin decidir.
+- `ang_z2y_proj` = −0.227 queda bajo el umbral 0.3 pero es grande; vigilar.
+- **Periodo de la IMU:** media 4.002 ms, máx 18.6 ms, 0 huecos > 0.02 s. 53094 mensajes.
+- **Nube:** 15 Hz, Δ entre nubes 0.0649 s; campo `time` por punto float32 de 0 a ≈0.0624 s, así que el **stamp es el INICIO del barrido**. Primer stamp de nube − IMU más cercana = −54.6 ms (mismo reloj).
