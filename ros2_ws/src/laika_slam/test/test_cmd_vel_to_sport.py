@@ -19,14 +19,17 @@ assert remote_event(2080 | 256, 2080) is None            # sostener L2+Y no repi
 assert remote_event(1040 | 256, 0) is None               # activar exige exactamente R2+X
 assert remote_event(1040, 2080) == 'activate'            # soltar paro y luego R2+X
 
-assert limit_cmd(1.0, 0.3, 2.0) == (0.4, 0.0, 0.5)
-assert limit_cmd(-0.2, 0, 0.3) == (0.0, 0.0, 0.3)  # sin reversa
-assert limit_cmd(0.1, 0, -9) == (0.1, 0.0, -0.5)
+assert limit_cmd(1.0, 0.3, 2.0) == (0.3, 0.0, 0.5)
+assert limit_cmd(-0.2, 0, 0.3) == (0.0, 0.0, 0.4)  # sin reversa; giro en el lugar subido a 0.4
+assert limit_cmd(0.1, 0, -9) == (0.25, 0.0, -0.5)  # vx subido al mínimo de marcha
+assert limit_cmd(0.1, 0, 0.1) == (0.25, 0.0, 0.1)  # caminando, el giro pequeño se respeta
+assert limit_cmd(0.01, 0, 0.03) is None            # ruido: no se sube al mínimo
+assert limit_cmd(0, 0, -0.2) == (0.0, 0.0, -0.4)
 assert limit_cmd(0, 0, 0) is None and limit_cmd(-0.1, 0, 0) is None
 assert limit_cmd(float('nan'), 0, 0) is None and limit_cmd(0.1, 0, float('inf')) is None
 
 c = (0.2, 0.0, 0.1)
-assert move_command(10.0, c, 9.9, 9.8, True) == (0.2, 0.0, 0.1)
+assert move_command(10.0, c, 9.9, 9.8, True) == (0.25, 0.0, 0.1)
 assert move_command(10.0, c, 9.6, 9.8, True) is None    # cmd viejo
 assert move_command(10.0, c, 9.9, 9.4, True) is None    # deadman viejo
 assert move_command(10.0, c, 9.9, 9.8, False) is None   # sin aprobar
