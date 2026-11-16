@@ -208,3 +208,10 @@ Pruebas en dry-run (`navigation.launch.py force_active:=true`, salida `/laika/sp
 - Retorno a la marca según AMCL: (−0.065, −0.086) m y −13.3°, contra (0.032, 0.022) m y −13.6° al inicio. Error 0.145 m y 0.3°: dentro del límite de 0.15 m, por poco. Incluye el error de colocar el robot a mano.
 - Ajuste scan–mapa (haces a ≤ 0.10 m de una celda ocupada), 109 muestras: media 70 %, mínimo 50 %, sin desplomarse. No llega a 100 % porque hay muebles bajos y personas.
 - **Incidente:** el Ethernet de la externa (`enP8p1s0`) se cayó 3 veces entre 13:25:41 y 13:27:08 (link down/up). AMCL corre a bordo y no se afectó. En la navegación armada, el deadman detendría al robot ante una caída, pero hay que asegurar el conector o el cable.
+
+## 2026-11-16: fase 4, paso 5 (primera publicación real, aprobada por el usuario)
+
+- `cmd_vel_to_sport` solo, armado (`-r sport_request_out:=/api/sport/request`), sin Nav2 ni deadman: únicamente podía mandar StopMove.
+- El control real funcionó: R2+X → `ACTIVE`; 31 s después, L2+Y → StopMove 1 s → `IDLE`.
+- `/sportmodestate.mode` = 0 antes y después: el robot no cambió de modo. Puente detenido al terminar.
+- Sin probar: el watchdog de `/lf/lowstate`. No hay forma de cortar ese tópico sin tocar la `.161`; queda cubierto solo por la lógica.
