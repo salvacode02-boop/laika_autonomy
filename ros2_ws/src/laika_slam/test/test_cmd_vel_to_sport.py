@@ -2,7 +2,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-from laika_slam.sport_logic import (remote_keys, remote_event, limit_cmd, goal_key, move_command)
+from laika_slam.sport_logic import (remote_keys, remote_event, limit_cmd, goal_key, move_command, SinCable)
 
 b = [0] * 40
 b[2], b[3] = 0x10, 0x04
@@ -36,4 +36,44 @@ assert move_command(10.0, c, 9.9, 9.8, False) is None   # sin aprobar
 assert move_command(10.0, c, None, 9.8, True) is None and move_command(10.0, c, 9.9, None, True) is None
 assert move_command(10.0, None, 9.9, 9.8, True) is None
 assert goal_key(1, 2, 0, 1) == '1.000,2.000,0.000,1.000'
+
+# --- modo sin cable ---
+def aprobada(sc, k='A'):
+    sc.on_goal(k); sc.on_approved(k)
+    return sc
+
+sc = SinCable(); sc.on_goal('A'); sc.on_approved('')            # el '' periodico se ignora
+assert sc.state == 'IDLE'
+assert sc.on_event('activate', 0) is None and sc.state == 'IDLE'  # R2+X antes del Enter no mueve
+sc.on_approved('A'); assert sc.state == 'APROBADA'                # Enter sin R2+X: no mueve
+assert sc.tick(1000) is None and sc.state == 'APROBADA'
+assert sc.on_event('activate', 5) == 'run' and sc.state == 'RUN'
+assert sc.on_goal('A') is None and sc.state == 'RUN'              # eco de la republicacion
+assert sc.on_event('activate', 6) is None and sc.state == 'RUN'
+
+sc = aprobada(SinCable())                                         # L2+Y y luego R2+X no mueve
+assert sc.on_event('stop', 0) == 'stop' and sc.state == 'IDLE'
+sc.on_approved('A'); assert sc.state == 'IDLE'                    # reaprobacion de la misma clave ignorada
+assert sc.on_event('activate', 1) is None
+assert SinCable().on_event('stop', 0) == 'stop'                   # L2+Y en IDLE tambien manda StopMove
+
+sc = aprobada(SinCable()); sc.on_event('activate', 0)             # meta nueva en RUN para
+assert sc.on_goal('B') == 'stop' and sc.state == 'IDLE'
+sc.on_approved('A'); assert sc.state == 'IDLE'                    # aprobacion vieja no vale para B
+sc.on_approved('B'); assert sc.state == 'APROBADA'
+
+sc = aprobada(SinCable()); sc.on_status({'g0': 6})                # goal viejo abortado antes del R2+X
+assert sc.on_event('activate', 0) == 'run'
+assert sc.on_status({'g0': 6, 'g1': 6}) == 'stop'                 # el nuevo (llego/aborto)... g1 no estaba
+sc = aprobada(SinCable()); sc.on_status({'g0': 2}); sc.on_event('activate', 0)
+assert sc.on_status({'g0': 6}) is None and sc.state == 'RUN'      # el viejo no cuenta
+assert sc.on_status({'g0': 6, 'g1': 2}) is None
+assert sc.on_status({'g0': 6, 'g1': 4}) == 'stop' and sc.state == 'IDLE'   # llego (4)
+assert sc.on_event('activate', 1) is None and sc.on_event('activate', 2) is None  # otro R2+X no mueve
+sc.on_approved('A'); assert sc.state == 'IDLE'
+
+sc = aprobada(SinCable()); sc.on_event('activate', 100)           # timeout de 90 s
+assert sc.tick(189.0) is None and sc.tick(190.5) == 'stop' and sc.state == 'IDLE'
+sc = aprobada(SinCable()); sc.on_event('activate', 0)
+assert sc.end() == 'stop' and sc.consumed                         # watchdog
 print('ok')

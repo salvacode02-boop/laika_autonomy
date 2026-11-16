@@ -54,3 +54,53 @@ def move_command(now, cmd, t_cmd, t_deadman, approved):
     if now - t_cmd > CMD_TIMEOUT or now - t_deadman > DEADMAN_TIMEOUT:
         return None
     return limit_cmd(*cmd)
+
+
+META_TIMEOUT = 90.0   # modo sin cable: tope de una meta en RUN
+GOAL_END = (4, 5, 6)  # action_msgs/GoalStatus: SUCCEEDED, CANCELED, ABORTED
+
+
+class SinCable:
+    """Maquina del modo sin cable: IDLE -> APROBADA -> RUN -> IDLE (sin ROS).
+
+    Cada metodo devuelve 'run' (republicar la meta y mover), 'stop' (StopMove 1 s) o None.
+    Al salir de RUN la aprobacion queda consumida: la misma clave no vuelve a aprobarse.
+    """
+
+    def __init__(self):
+        self.state, self.goal, self.consumed = 'IDLE', None, False
+        self.ids = {}         # goal_id -> ultimo status visto en Nav2
+        self.baseline = set()  # ids ya existentes al pasar a RUN (el goal nuevo no esta aqui)
+        self.t_run = None
+
+    def end(self):
+        """Sale a IDLE consumiendo la aprobacion (L2+Y, watchdog, timeout, status final)."""
+        self.state, self.consumed = 'IDLE', True
+        return 'stop'
+
+    def on_goal(self, key):
+        if key == self.goal:  # eco de la republicacion
+            return None
+        was, self.state, self.goal, self.consumed = self.state, 'IDLE', key, False
+        return 'stop' if was == 'RUN' else None
+
+    def on_approved(self, key):
+        if self.state == 'IDLE' and key and key == self.goal and not self.consumed:
+            self.state = 'APROBADA'
+
+    def on_event(self, ev, now):
+        if ev == 'stop':
+            return self.end()
+        if ev == 'activate' and self.state == 'APROBADA':
+            self.state, self.t_run, self.baseline = 'RUN', now, set(self.ids)
+            return 'run'
+        return None
+
+    def on_status(self, ids):
+        self.ids = dict(ids)
+        if self.state == 'RUN' and any(g not in self.baseline and s in GOAL_END for g, s in ids.items()):
+            return self.end()
+        return None
+
+    def tick(self, now):
+        return self.end() if self.state == 'RUN' and now - self.t_run > META_TIMEOUT else None
