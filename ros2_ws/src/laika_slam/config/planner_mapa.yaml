@@ -1,0 +1,4 @@
+planner_server:
+  ros__parameters:
+    GridBased:
+      allow_unknown: false  # mapa guardado: solo por espacio conocido
