@@ -1,0 +1,16 @@
+# Valores: docs/plan-fase2.md 3.1 y docs/decisiones.md (Fase 2 paso 3, candidata A).
+l1_to_body:
+  ros__parameters:
+    cloud_topic: /utlidar/cloud
+    imu_topic: /utlidar/imu
+    out_frame: body
+    cloud_R: [-0.9655, 0.0, 0.2605, 0.0, 1.0, 0.0, -0.2605, 0.0, -0.9655]
+    cloud_z_offset: -0.046825
+    # [xmin, xmax, ymin, ymax, zmin, zmax]; se eliminan los puntos dentro (en body)
+    self_box: [-0.7, -0.1, -0.3, 0.3, -0.6468, -0.0468]
+    imu_R: [0.9655, 0.0, 0.2605, 0.0, -1.0, 0.0, 0.2605, 0.0, -0.9655]
+    gyro_bias: [0.0075, -0.0005, 0.0016]
+    gyro_scale: 1.0
+    ang_z2x_proj: 0.075
+    ang_z2y_proj: -0.227
+    zero_acc: true
