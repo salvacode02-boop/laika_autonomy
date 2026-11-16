@@ -9,8 +9,8 @@
         init_map_size: 10
         point_filter_num: 1
         space_down_sample: true
-        filter_size_surf: 0.1
-        filter_size_map: 0.1
+        filter_size_surf: 0.5
+        filter_size_map: 0.5
         cube_side_length: 1000.0
         runtime_pos_log_enable: false
 
@@ -30,7 +30,7 @@
             blind: 0.5
 
         mapping:
-            imu_en: true
+            imu_en: true    # bag fase2_cuarto1, surf=map=0.5: con IMU retorno 7.75 m (yaw +16.7 rad); LiDAR solo (imu_en false) 272 m
             start_in_aggressive_motion: false
             extrinsic_est_en: false
             imu_time_inte: 0.004         # IMU a 250 Hz
