@@ -169,3 +169,12 @@ Reglas de operación:
 - Antes de lanzar el SLAM: `ssh unitree@192.168.123.18 chronyc tracking` debe mostrar Reference ID `192.168.123.50`. Si el reloj salta con los launches corriendo, reiniciarlos.
 - Si el robot arranca sin la externa queda en 1970: no compilar con `colcon` en ese estado.
 - `apt-daily` del robot solo actualiza listas (sin `unattended-upgrades`): se deja como está.
+
+## 2026-11-16: fase 3, prueba del WiFi propio del robot (`Go2_41771`)
+
+El usuario quiso probar, antes de montar el router, recibir los datos por el WiFi del robot.
+- La Jetson del robot no tiene WiFi. `Go2_41771` lo da la `.161` (`192.168.12.1/24`); la externa recibe `192.168.12.125`.
+- Prueba con rutas temporales: en la externa `192.168.123.18/32 via 192.168.12.1`; en el robot `192.168.12.0/24 via 192.168.123.161`.
+  - Externa → `.18` por WiFi: sin respuesta (ping y SSH).
+  - Robot → `192.168.12.1`: responde (es una dirección de la propia `.161`). Robot → `192.168.12.125`: sin respuesta.
+- **Conclusión:** la `.161` no reenvía tráfico entre su WiFi y la red cableada. La `.161` es cerrada, así que no se puede activar. **El WiFi del robot no sirve para ROS: la fase 3 sigue con el router montado en el perro.**
