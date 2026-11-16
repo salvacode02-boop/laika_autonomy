@@ -15,12 +15,13 @@ class CmdVelToSport(Node):
     def __init__(self):
         super().__init__('cmd_vel_to_sport')
         self.declare_parameter('dry_run_force_active', False)  # solo vale si la salida no es /api/sport/request
-        self.out_topic = self.resolve_topic_name('sport_request_out')
+        self.pub = self.create_publisher(Request, 'sport_request_out', 10)
+        self.out_topic = self.pub.topic_name  # ya con el remapping aplicado
         self.force = (self.get_parameter('dry_run_force_active').value
                       and self.out_topic != '/api/sport/request')
-        self.pub = self.create_publisher(Request, 'sport_request_out', 10)
         self.state_pub = self.create_publisher(String, '/laika/bridge_state', 10)
-        self.create_subscription(LowState, '/lowstate', self.lowstate_cb, qos_profile_sensor_data)
+        # /lf/lowstate (20 Hz) en vez de /lowstate (500 Hz): mismo control, ~70 % menos CPU
+        self.create_subscription(LowState, '/lf/lowstate', self.lowstate_cb, qos_profile_sensor_data)
         self.create_subscription(Twist, '/cmd_vel', self.cmd_cb, 10)
         self.create_subscription(Empty, '/laika/deadman', self.dead_cb, 10)
         self.create_subscription(PoseStamped, '/goal_pose', self.goal_cb, 10)
@@ -28,6 +29,7 @@ class CmdVelToSport(Node):
         self.active = self.force
         self.prev_keys = 0
         self.cmd = self.t_cmd = self.t_dead = None
+        self.t_low = None
         self.goal = self.approved_key = None
         self.moving = False
         self.stop_until = 0.0
@@ -50,6 +52,7 @@ class CmdVelToSport(Node):
         self.stop_until = self.now() + L.STOP_BURST
 
     def lowstate_cb(self, msg):
+        self.t_low = self.now()
         keys = L.remote_keys(msg.wireless_remote)
         ev = L.remote_event(keys, self.prev_keys)
         self.prev_keys = keys
@@ -78,6 +81,10 @@ class CmdVelToSport(Node):
 
     def tick(self):
         now = self.now()
+        if self.active and not self.force and (self.t_low is None or now - self.t_low > L.LOWSTATE_TIMEOUT):
+            self.active = self.moving = False  # sin control no hay botón de paro
+            self.start_stop()
+            self.get_logger().warn('Sin /lf/lowstate > %.1f s: StopMove y IDLE' % L.LOWSTATE_TIMEOUT)
         if now < self.stop_until:
             self.send(API_STOP)
         elif self.active:

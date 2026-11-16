@@ -13,6 +13,11 @@ assert remote_keys(b) == 2080
 assert remote_event(1040, 0) == 'activate' and remote_event(1040, 1040) is None
 assert remote_event(2080, 0) == 'stop' and remote_event(2080, 2080) is None
 assert remote_event(2080, 1040) == 'stop' and remote_event(16, 0) is None and remote_event(0, 1040) is None
+assert remote_event(2080 | 256, 0) == 'stop'             # L2+Y+A también detiene
+assert remote_event(2080 | 1040, 0) == 'stop'            # R2+X+L2+Y: detiene, no activa
+assert remote_event(2080 | 256, 2080) is None            # sostener L2+Y no repite
+assert remote_event(1040 | 256, 0) is None               # activar exige exactamente R2+X
+assert remote_event(1040, 2080) == 'activate'            # soltar paro y luego R2+X
 
 assert limit_cmd(1.0, 0.3, 2.0) == (0.25, 0.0, 0.5)
 assert limit_cmd(-0.2, 0, 0.3) == (0.0, 0.0, 0.3)  # sin reversa

@@ -5,19 +5,23 @@ KEYS_ACTIVATE = 1040  # R2+X (medido en /lowstate)
 KEYS_STOP = 2080      # L2+Y
 VX_MAX, WZ_MAX = 0.25, 0.5
 CMD_TIMEOUT, DEADMAN_TIMEOUT, STOP_BURST = 0.3, 0.5, 1.0
+LOWSTATE_TIMEOUT = 0.5  # sin /lf/lowstate (20 Hz) no hay botón de paro: se detiene
 
 
 def remote_keys(wireless_remote):
     return int(wireless_remote[2]) | (int(wireless_remote[3]) << 8)
 
 
+def _stop_held(keys):
+    # Paro por bits: L2+Y detiene aunque haya otros botones presionados.
+    return (keys & KEYS_STOP) == KEYS_STOP
+
+
 def remote_event(keys, prev_keys):
-    """Flanco de subida: 'activate', 'stop' o None. L2+Y nunca activa."""
-    if keys == prev_keys:
-        return None
-    if keys == KEYS_STOP:
-        return 'stop'
-    if keys == KEYS_ACTIVATE:
+    """Flanco de subida: 'activate', 'stop' o None. El paro gana siempre; L2+Y nunca activa."""
+    if _stop_held(keys):
+        return None if _stop_held(prev_keys) else 'stop'
+    if keys == KEYS_ACTIVATE and prev_keys != KEYS_ACTIVATE:
         return 'activate'
     return None
 
