@@ -16,7 +16,9 @@ def generate_launch_description():
         package=pkg, executable=exe, name=name, output='screen', parameters=params)
     return LaunchDescription([
         DeclareLaunchArgument('controller_yaml', default_value=cfg('controller_dwb.yaml')),
-        nav('nav2_planner', 'planner_server', 'planner_server', [cfg('nav2_common.yaml')]),
+        DeclareLaunchArgument('planner_yaml', default_value=cfg('planner_mapa.yaml')),  # planner_slam.yaml con --slam
+        nav('nav2_planner', 'planner_server', 'planner_server',
+            [cfg('nav2_common.yaml'), LaunchConfiguration('planner_yaml')]),
         nav('nav2_controller', 'controller_server', 'controller_server', ctrl),
         nav('nav2_recoveries', 'recoveries_server', 'recoveries_server', [cfg('nav2_common.yaml')]),
         nav('nav2_bt_navigator', 'bt_navigator', 'bt_navigator', [cfg('nav2_common.yaml'), bt]),

@@ -242,3 +242,11 @@ Puente armado, sin Nav2. Las órdenes las genera `scripts/prueba_movimiento.py`.
 - **Controladores:** DWB `max_vel_x`/`max_speed_xy` 0.3; RPP `desired_linear_vel` 0.3.
 - **Huella:** `robot_radius` 0.40 → huella rectangular `[[±0.38, ±0.18]]` (R8). Con el radio, la marca de inicio quedaba "inscrita": hay una celda ocupada del mapa a 0.33 m (izquierda-adelante), NavFn fallaba con "failed to create plan" y el costo en la marca era 99.
 - **Dry-run:** desde la marca, meta a 1.5 m → `/plan` de 71 puntos (1.85 m, rodea ese obstáculo). Enter → Move `x=0.300, z=-0.237` a 10 Hz. Ctrl-C del deadman → 10 StopMove.
+
+## 2026-11-16: fase 4, navegación con mapa en vivo (`scripts/laika_fase4.sh --slam`)
+
+- Pedido por el usuario: hacer el mapa en el momento y navegar sobre él. El panel `base` corre `mapping.launch.py` (`slam_toolbox` publica `map → odom`) en vez de AMCL con el mapa guardado. No hay pose inicial: el mapa nace donde está el robot.
+- El planificador necesita `allow_unknown: true` (`config/planner_slam.yaml`). Con un mapa nuevo, el área bajo el robot (< 0.6 m, zona ciega del scan) es desconocida y NavFn fallaba con "failed to create plan". Con el mapa guardado sigue `allow_unknown: false` (`config/planner_mapa.yaml`, por defecto).
+- `nav2_servers.launch.py` recibe `planner_yaml`.
+- Dry-run: meta a 1 m → `/plan` de 45 puntos (1.16 m), Move 0.3 tras el Enter; `tmux kill-session` → StopMove y el robot queda limpio.
+- Riesgo aceptado: con `allow_unknown` puede planear por zonas no vistas; el costmap local con el scan detecta obstáculos a > 0.6 m. Guardar el mapa antes de cerrar: `scripts/guardar_mapa.sh <nombre>`.
