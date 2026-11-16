@@ -215,3 +215,20 @@ Pruebas en dry-run (`navigation.launch.py force_active:=true`, salida `/laika/sp
 - El control real funcionó: R2+X → `ACTIVE`; 31 s después, L2+Y → StopMove 1 s → `IDLE`.
 - `/sportmodestate.mode` = 0 antes y después: el robot no cambió de modo. Puente detenido al terminar.
 - Sin probar: el watchdog de `/lf/lowstate`. No hay forma de cortar ese tópico sin tocar la `.161`; queda cubierto solo por la lógica.
+
+## 2026-11-16: fase 4, paso 6 (movimiento mínimo, aprobado por el usuario)
+
+Puente armado, sin Nav2. Las órdenes las genera `scripts/prueba_movimiento.py`. El diagnóstico (`/api/sport/response` y `/sportmodestate`) se registró en el robot.
+- **Zona muerta de la marcha del Go2:**
+  - vx = 0.1 y wz = 0.2 solo inclinan el cuerpo;
+  - vx = 0.2 es inestable: a veces camina, a veces arranca y se frena, a veces solo se estira, aunque los 83 Move vuelven con `code=0`;
+  - wz = 0.4 gira (~24° en 2 s);
+  - **vx = 0.3 camina de forma continua 8 s** (real 0.08–0.31, media 0.22 m/s, ~1.8 m).
+- Para medir el umbral, el usuario aprobó subir `VX_MAX` a 0.4 (antes 0.25).
+- `error_code=100` y `mode=0`/`gait_type=0` son normales en este firmware (en reposo y caminando). `obstaclesAvoidSwitch=false` según `/multiplestate`. Nadie más publica 1008/1003.
+- Signos correctos: wz > 0 gira a la izquierda; vx > 0 avanza.
+- **Paradas:**
+  - corte de `/cmd_vel`: quieto ≲ 1 s;
+  - corte del deadman: quieto ~0.7 s;
+  - **L2+Y real a 0.3 m/s:** primer StopMove 70 ms después y robot quieto en 0.5–1 s; las órdenes siguientes quedan ignoradas (IDLE).
+- **El joystick NO detiene la orden automática: se suma.** Joystick a la derecha durante el Move vx=0.3 → vy −0.3..−0.4 mientras vx sigue ~0.25. Las únicas paradas son L2+Y, el deadman (Ctrl-C o cable), el Ctrl-C del puente y, como último recurso, L2+B (Damp).
