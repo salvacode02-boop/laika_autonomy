@@ -98,3 +98,17 @@ Análisis offline de `~/laika_bags/fase2_cuarto1` con `scripts/analizar_imu.py` 
 - `ang_z2y_proj` = −0.227 queda bajo el umbral 0.3 pero es grande; vigilar.
 - **Periodo de la IMU:** media 4.002 ms, máx 18.6 ms, 0 huecos > 0.02 s. 53094 mensajes.
 - **Nube:** 15 Hz, Δ entre nubes 0.0649 s; campo `time` por punto float32 de 0 a ≈0.0624 s, así que el **stamp es el INICIO del barrido**. Primer stamp de nube − IMU más cercana = −54.6 ms (mismo reloj).
+
+## 2026-11-16: fase 2, escala del giroscopio: no se aplica (`gyro_scale = 1.0`)
+
+En los giros, el giroscopio integra ~0.86 del yaw de odom. Para distinguir escala de bias se hizo una regresión de w (proyectado sobre el eje de giro medido, [0.138, −0.216, −0.967] en el marco IMU) contra `twist.z` de odom, en ventanas de 0.5 s:
+
+| Tramo | Pendiente | Intercepto |
+|---|---|---|
+| Giro 1 (42.6–51.6 s, ~0.62 rad/s) | 0.956 | +0.002 rad/s |
+| Giro 2 (62.1–83.6 s, ~0.28 rad/s) | 0.990 | −0.065 rad/s |
+| Todos | 1.020 | −0.056 rad/s |
+
+La pendiente es ≈ 1: **no es error de escala**. El déficit es un **bias que aparece al caminar** (~−0.06 rad/s), que pesa más en el giro lento. Point-LIO estima el bias del giroscopio en línea, así que debería absorberlo. IMU confirmada a 249.9 Hz.
+
+Configuración inicial (criterio del advisor): `imu_R` = A + proyecciones, `gyro_scale` = 1.0. Variante de reserva si las paredes se emborronan al girar: rotación que lleva z_body al eje medido, con z2x = z2y = 0.
