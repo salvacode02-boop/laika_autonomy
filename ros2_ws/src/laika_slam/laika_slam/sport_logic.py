@@ -3,7 +3,10 @@ import math
 
 KEYS_ACTIVATE = 1040  # R2+X (medido en /lowstate)
 KEYS_STOP = 2080      # L2+Y
-VX_MAX, WZ_MAX = 0.4, 0.5  # 0.4 aprobado por el usuario para medir el umbral de marcha (fase 4, paso 6)
+VX_MAX, WZ_MAX = 0.3, 0.5
+# Paso 6: con vx < ~0.25 o giro en el lugar < 0.4 rad/s el Go2 solo inclina el cuerpo.
+VX_MIN, WZ_MIN = 0.25, 0.4
+NOISE_VX, NOISE_WZ = 0.02, 0.05  # por debajo de esto se toma como cero (no se sube al mínimo)
 CMD_TIMEOUT, DEADMAN_TIMEOUT, STOP_BURST = 0.3, 0.5, 1.0
 LOWSTATE_TIMEOUT = 0.5  # sin /lf/lowstate (20 Hz) no hay botón de paro: se detiene
 
@@ -32,6 +35,10 @@ def limit_cmd(vx, vy, wz):
         return None
     vx = min(max(vx, 0.0), VX_MAX)  # sin reversa
     wz = min(max(wz, -WZ_MAX), WZ_MAX)
+    vx = 0.0 if vx < NOISE_VX else max(vx, VX_MIN)  # zona muerta de la marcha: subir al mínimo que da pasos
+    wz = 0.0 if abs(wz) < NOISE_WZ else wz
+    if vx == 0.0 and wz != 0.0:
+        wz = math.copysign(max(abs(wz), WZ_MIN), wz)  # giro en el lugar: idem
     return None if vx == 0.0 and wz == 0.0 else (vx, 0.0, wz)
 
 

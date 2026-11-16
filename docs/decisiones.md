@@ -232,3 +232,13 @@ Puente armado, sin Nav2. Las órdenes las genera `scripts/prueba_movimiento.py`.
   - corte del deadman: quieto ~0.7 s;
   - **L2+Y real a 0.3 m/s:** primer StopMove 70 ms después y robot quieto en 0.5–1 s; las órdenes siguientes quedan ignoradas (IDLE).
 - **El joystick NO detiene la orden automática: se suma.** Joystick a la derecha durante el Move vx=0.3 → vy −0.3..−0.4 mientras vx sigue ~0.25. Las únicas paradas son L2+Y, el deadman (Ctrl-C o cable), el Ctrl-C del puente y, como último recurso, L2+B (Damp).
+
+## 2026-11-16: fase 4, ajuste de Nav2 a la marcha del Go2 (dry-run)
+
+- **Puente:**
+  - `VX_MAX` 0.3 (bajado del 0.4 de las pruebas).
+  - **Zona muerta:** vx no nula < 0.25 se sube a 0.25; giro en el lugar (vx = 0) con |wz| < 0.4 se sube a 0.4. Por debajo de 0.02 m/s / 0.05 rad/s se toma como cero.
+  - Test ampliado.
+- **Controladores:** DWB `max_vel_x`/`max_speed_xy` 0.3; RPP `desired_linear_vel` 0.3.
+- **Huella:** `robot_radius` 0.40 → huella rectangular `[[±0.38, ±0.18]]` (R8). Con el radio, la marca de inicio quedaba "inscrita": hay una celda ocupada del mapa a 0.33 m (izquierda-adelante), NavFn fallaba con "failed to create plan" y el costo en la marca era 99.
+- **Dry-run:** desde la marca, meta a 1.5 m → `/plan` de 71 puntos (1.85 m, rodea ese obstáculo). Enter → Move `x=0.300, z=-0.237` a 10 Hz. Ctrl-C del deadman → 10 StopMove.
