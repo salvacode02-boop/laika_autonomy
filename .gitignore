@@ -1,3 +1,5 @@
 
 *.pcd
 !maps/*_5cm.pcd
+!maps/fase2_cuarto1_bag.pcd
+__pycache__/
