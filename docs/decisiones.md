@@ -153,3 +153,19 @@ Caminata en el cuarto1 con `mapping.launch.py` + `map3d.launch.py` a bordo y RVi
 - Piso: inclinación 0.22°, mediana por celda en un rango de 0.15 m (criterio revisado: 0.10 m). **Aceptado por el usuario**; se atribuye al balanceo del cuerpo al caminar.
 - Pared derecha: banda de ~37 cm de grosor por encima de 1.3 m, delgada abajo; también apareció en el bag. Se interpreta como estructura real de la pared, no deriva (esquinas y parte baja salen simples).
 - **El usuario confirmó que los mapas quedaron bien: fase 2 terminada.** Pendiente para después: chrony y fase 3 (WiFi).
+
+## 2026-11-16: relojes sincronizados con chrony (plan en `docs/plan-chrony.md`)
+
+**Decisión:** la Jetson externa es el servidor chrony (pools de internet + `local stratum 10`, `allow 192.168.123.0/24`) y reemplaza a `systemd-timesyncd`. El robot es cliente con una sola fuente (`server 192.168.123.50 iburst minpoll 2 maxpoll 4`, `makestep 1 -1`, pools desactivados). No se tocó código.
+
+Resultados:
+- Robot sincronizado con la externa: |System time| de 1–5 µs.
+- Tras reiniciar el robot (RTC en 1970): chrony saltó a la hora correcta 3 s después de arrancar.
+- Sin internet en la externa: Stratum 10 local; el robot siguió con `^*` y menos de 3 µs. Al volver el WiFi regresó a los pools sin desfasar al robot.
+- Regresión: `/scan` a 5.0 Hz, `tf2_echo map base_link` responde, el log no tiene errores ni "extrapolation". `map3d bag:=true` con `cuarto1`: 4480 nubes, 0 descartadas, 142 609 vóxeles (antes 141 819).
+- **Hallazgo:** la `.161` no se quedó en 1970: sus stamps pasaron a 2026, pero siguen ~2066 s detrás del robot. Parece que toma la hora de la Jetson del robot con un desfase fijo. El offset por software de `odom_to_tf` lo sigue cubriendo.
+
+Reglas de operación:
+- Antes de lanzar el SLAM: `ssh unitree@192.168.123.18 chronyc tracking` debe mostrar Reference ID `192.168.123.50`. Si el reloj salta con los launches corriendo, reiniciarlos.
+- Si el robot arranca sin la externa queda en 1970: no compilar con `colcon` en ese estado.
+- `apt-daily` del robot solo actualiza listas (sin `unattended-upgrades`): se deja como está.
