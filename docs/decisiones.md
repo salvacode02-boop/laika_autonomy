@@ -1,0 +1,30 @@
+# Decisiones
+
+## 2026-11-16: plan de la fase 1 aprobado
+
+Ver `docs/plan-fase1.md` (decisiones D1 a D7).
+
+## 2026-11-16: mediciones del paso 4 (robot de pie y quieto)
+
+| Dato | Medido | Consecuencia |
+|---|---|---|
+| `/utlidar/robot_odom` | 150 Hz; `odom` → `base_link` | Coincide con el plan; `odom_to_tf` valida esos marcos. |
+| `/utlidar/cloud_deskewed` | 15.4 Hz; ~10 600 pts/msg; campos `x y z intensity` (float32, `point_step` 32) | Hay suficientes puntos en bruto. |
+| QoS de los publicadores | Reliable / Volatile (odom, cloud, cloud_deskewed) | Los suscriptores pueden ser Best Effort o Reliable. |
+| Reloj de los stamps | Odom y nube usan el mismo reloj, ~2060 s **detrás** del reloj de la Jetson del robot (probablemente es el reloj de la `.161`) | Confirma D3: TF con el stamp del mensaje, nunca `now()`. `chrony` entre Jetsons no corrige este desfase. Riesgo de "extrapolation" en nodos que usan `now()`. |
+| Altura del piso en `base_link` | z ≈ −0.33 m (pico del histograma entre −0.35 y −0.30); `base_link` a 0.304 m en `odom`; roll/pitch ≈ −1.9°/1.4° en reposo | `min_height = −0.17` (z_piso + 0.15) **confirmado**. |
+| Puntos sobre piso + 0.15 m | ~190 por nube; 95 % de los puntos de la nube caen a menos de 1 m (piso cercano) | Densidad útil baja: R2 es probable. Confirmar en el paso 8 con el criterio de ≥150 haces válidos; si no se alcanza, aplicar C2 (acumular nubes). |
+
+## 2026-11-16: `odom_to_tf` se queda a 150 Hz
+
+Usa ~30 % de un núcleo (Python, 150 msg/s). Eso es ~4 % de la CPU total de la Orin NX (8 núcleos), así que la meta de 20 % del plan no aplica como límite. Si `slam_toolbox` necesita CPU, publicar 1 de cada 3 mensajes (50 Hz, stamp original). Con un scan de 15 Hz el error de interpolación quedaría en milímetros.
+
+## 2026-11-16: apt de ROS en el robot
+
+`ros-foxy-slam-toolbox` y `ros-foxy-pointcloud-to-laserscan` no aparecen en `apt-cache`. El repositorio de ROS en el robot es el mirror `mirrors.tuna.tsinghua.edu.cn`. Se decide en el paso 7 (requiere aprobación de sudo).
+
+## 2026-11-16: D3 revisada: stamp original + offset común al reloj de la Jetson del robot
+
+- `slam_toolbox` 2.4.1 (Foxy) estampa `map → odom` con `now()`; con stamps ~2060 s atrasados, `map → base_link` no tiene tiempo común y /scan no se dibuja.
+- Un offset único (`now() - stamp` del primer mensaje de odometría) aplicado a TF y nube conserva la alineación odom/nube; `odom_to_tf` lo recalcula si se desvía >0.5 s y republica la nube en `/laika/cloud_deskewed`.
+- Se descartó cambiar el reloj del sistema y compilar `slam_toolbox` desde código.

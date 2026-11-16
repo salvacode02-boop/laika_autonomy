@@ -2,6 +2,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from nav_msgs.msg import Odometry
+from sensor_msgs.msg import PointCloud2
 from tf2_msgs.msg import TFMessage
 from geometry_msgs.msg import TransformStamped
 
@@ -11,6 +12,23 @@ class OdomToTf(Node):
         super().__init__('odom_to_tf')
         self.pub = self.create_publisher(TFMessage, '/tf', 100)
         self.create_subscription(Odometry, '/utlidar/robot_odom', self.cb, qos_profile_sensor_data)
+        self.cloud_pub = self.create_publisher(PointCloud2, '/laika/cloud_deskewed', qos_profile_sensor_data)
+        self.create_subscription(PointCloud2, '/utlidar/cloud_deskewed', self.cloud_cb, qos_profile_sensor_data)
+        self.offset = None  # ns; now() - stamp. Los stamps de la .161 van ~2060 s atrasados.
+
+    def now_ns(self):
+        return self.get_clock().now().nanoseconds
+
+    def shift(self, stamp):
+        ns = stamp.sec * 1000000000 + stamp.nanosec + self.offset
+        stamp.sec, stamp.nanosec = divmod(ns, 1000000000)
+        return ns
+
+    def cloud_cb(self, msg):
+        if self.offset is None:
+            return
+        self.shift(msg.header.stamp)
+        self.cloud_pub.publish(msg)
 
     def cb(self, msg):
         if msg.header.frame_id != 'odom' or msg.child_frame_id != 'base_link':
@@ -18,8 +36,15 @@ class OdomToTf(Node):
                 'Marcos inesperados: %r -> %r' % (msg.header.frame_id, msg.child_frame_id),
                 throttle_duration_sec=5.0)
             return
+        raw = msg.header.stamp.sec * 1000000000 + msg.header.stamp.nanosec
+        if self.offset is None or abs(self.now_ns() - (raw + self.offset)) > 500000000:
+            if self.offset is not None:
+                self.get_logger().warn('Offset de reloj desfasado >0.5 s; recalculando',
+                                       throttle_duration_sec=5.0)
+            self.offset = self.now_ns() - raw
         t = TransformStamped()
-        t.header = msg.header  # stamp original, nunca now()
+        t.header = msg.header
+        self.shift(t.header.stamp)  # stamp original + offset comun (D3 revisada)
         t.child_frame_id = msg.child_frame_id
         t.transform.translation.x = msg.pose.pose.position.x
         t.transform.translation.y = msg.pose.pose.position.y
