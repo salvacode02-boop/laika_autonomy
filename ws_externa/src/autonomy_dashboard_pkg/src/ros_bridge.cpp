@@ -55,6 +55,16 @@ RosBridge::RosBridge()
   auto_export_enabled = declare_parameter<bool>("auto_export_enabled", false);
   geotiff_px_per_cell = std::max(1, static_cast<int>(declare_parameter<int>("geotiff_px_per_cell", 2)));
 
+  laika_dir = declare_parameter<std::string>("laika_dir", laika_dir);
+  model_dir = declare_parameter<std::string>("model_dir", laika_dir + "/ws_externa/src/go2_description");
+  ply_res = declare_parameter<double>("ply_to_grid.resolution", ply_res);
+  ply_floor_pct = declare_parameter<double>("ply_to_grid.floor_percentile", ply_floor_pct);
+  ply_band_min = declare_parameter<double>("ply_to_grid.band_min", ply_band_min);
+  ply_band_max = declare_parameter<double>("ply_to_grid.band_max", ply_band_max);
+  ply_floor_tol = declare_parameter<double>("ply_to_grid.floor_tol", ply_floor_tol);
+  ply_min_points = static_cast<int>(declare_parameter<int>("ply_to_grid.min_points", ply_min_points));
+  const auto t_joints = declare_parameter<std::string>("topics.joint_states", "/joint_states");
+
   voxel_ = declare_parameter<double>("cloud.voxel_size", 0.05);
   min_range_ = declare_parameter<double>("cloud.min_range", 0.6);
   max_range_ = declare_parameter<double>("cloud.max_range", 15.0);
@@ -107,6 +117,14 @@ RosBridge::RosBridge()
     t_odom, rclcpp::SensorDataQoS(), std::bind(&RosBridge::odomCb, this, _1));
   objects_sub_ = create_subscription<std_msgs::msg::String>(
     t_obj, 10, std::bind(&RosBridge::objectsCb, this, _1));
+
+  joint_sub_ = create_subscription<sensor_msgs::msg::JointState>(
+    t_joints, rclcpp::SensorDataQoS(), [this](sensor_msgs::msg::JointState::ConstSharedPtr m) {
+      std::lock_guard<std::mutex> lk(joint_mx);
+      for (size_t i = 0; i < m->name.size() && i < m->position.size(); ++i) {joints[m->name[i]] = m->position[i];}
+      joint_last_ns = nowNs();
+      joint_version++;
+    });
 
   const auto rel = rclcpp::QoS(2).reliable();
   gcm_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
@@ -289,6 +307,7 @@ void RosBridge::odomCb(const nav_msgs::msg::Odometry::ConstSharedPtr msg)
   pose.y = p.y;
   pose.z = p.z;
   pose.yaw = yawFromQuat(q.x, q.y, q.z, q.w);
+  pose.qx = q.x; pose.qy = q.y; pose.qz = q.z; pose.qw = q.w;
   pose.valid = true;
 
   // Trayectoria: un punto cada 5 cm mientras se mapea

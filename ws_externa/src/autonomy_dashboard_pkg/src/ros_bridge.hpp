@@ -5,6 +5,7 @@
 #include <array>
 #include <atomic>
 #include <cstdint>
+#include <map>
 #include <mutex>
 #include <string>
 #include <unordered_set>
@@ -20,6 +21,7 @@
 #include <nav_msgs/msg/path.hpp>
 #include <std_msgs/msg/empty.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_srvs/srv/empty.hpp>
@@ -28,6 +30,7 @@
 
 struct Pose2D {
   double x = 0, y = 0, z = 0, yaw = 0;
+  double qx = 0, qy = 0, qz = 0, qw = 1;  // orientación completa (modelo 3D del robot)
   bool valid = false;
 };
 
@@ -84,6 +87,11 @@ public:
 
   // --- Configuración (solo lectura después del constructor)
   std::string team, mission, output_dir, map_frame;
+  std::string laika_dir = "/home/robotica/laika";   // raíz del repo (scripts/, maps/)
+  std::string model_dir;                               // go2_description (urdf/ y dae/)
+  // ply_to_grid (ver mapio.hpp)
+  double ply_res = 0.05, ply_floor_pct = 2.0, ply_band_min = 0.10, ply_band_max = 0.93, ply_floor_tol = 0.10;
+  int ply_min_points = 2;
   int max_time = 1200;
   int auto_export_time = 1200;
   int geotiff_px_per_cell = 2;
@@ -135,6 +143,12 @@ public:
   ApprovalData appr;
   std::atomic<uint64_t> appr_version{0};
 
+  // --- Ángulos de las articulaciones (/joint_states del robot), protegidos por joint_mx
+  std::mutex joint_mx;
+  std::map<std::string, double> joints;
+  std::atomic<uint64_t> joint_version{0};
+  std::atomic<int64_t> joint_last_ns{0};   // reloj steady; 0 = nunca
+
   // Se llaman desde el hilo de la UI (publish es thread-safe)
   void publishGoal(double x, double y, double yaw);
   void publishInitialPose(double x, double y, double yaw);
@@ -181,6 +195,7 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PolygonStamped>::SharedPtr fp_sub_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr state_sub_;
+  rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr goal_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr init_pub_;
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr dead_pub_;

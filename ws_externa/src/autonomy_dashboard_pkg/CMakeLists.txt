@@ -21,6 +21,8 @@ find_package(tf2_ros REQUIRED)
 find_package(Qt5 REQUIRED COMPONENTS Widgets OpenGL Concurrent)
 find_package(PCL REQUIRED COMPONENTS common features kdtree search)
 find_package(TIFF REQUIRED)
+find_package(urdf REQUIRED)
+find_package(assimp REQUIRED)
 find_package(OpenMP)
 find_library(GEOTIFF_LIBRARY NAMES geotiff REQUIRED)
 
@@ -31,10 +33,14 @@ add_executable(autonomy_dashboard
   src/main.cpp
   src/ros_bridge.cpp
   src/exporters.cpp
+  src/mapio.cpp
+  src/robot_model.cpp
   src/map2d_view.cpp
   src/cloud3d_view.cpp
   src/main_window.cpp
   src/ros_bridge.hpp
+  src/mapio.hpp
+  src/robot_model.hpp
   src/map2d_view.hpp
   src/cloud3d_view.hpp
   src/main_window.hpp
@@ -46,12 +52,13 @@ target_include_directories(autonomy_dashboard PRIVATE
 )
 target_compile_definitions(autonomy_dashboard PRIVATE ${PCL_DEFINITIONS})
 ament_target_dependencies(autonomy_dashboard
-  rclcpp sensor_msgs nav_msgs geometry_msgs std_msgs std_srvs tf2 tf2_ros)
+  rclcpp sensor_msgs nav_msgs geometry_msgs std_msgs std_srvs tf2 tf2_ros urdf)
 target_link_libraries(autonomy_dashboard
   Qt5::Widgets Qt5::OpenGL Qt5::Concurrent
   ${PCL_LIBRARIES}
   ${TIFF_LIBRARIES}
   ${GEOTIFF_LIBRARY}
+  assimp::assimp
 )
 if(OpenMP_CXX_FOUND)
   target_link_libraries(autonomy_dashboard OpenMP::OpenMP_CXX)

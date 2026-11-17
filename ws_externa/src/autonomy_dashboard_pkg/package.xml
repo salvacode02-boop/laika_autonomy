@@ -18,6 +18,8 @@
   <depend>geometry_msgs</depend>
   <depend>tf2</depend>
   <depend>tf2_ros</depend>
+  <depend>urdf</depend>
+  <!-- libassimp-dev: instalar con apt -->
   <depend>qtbase5-dev</depend>
   <depend>libqt5-opengl-dev</depend>
   <depend>libpcl-all-dev</depend>

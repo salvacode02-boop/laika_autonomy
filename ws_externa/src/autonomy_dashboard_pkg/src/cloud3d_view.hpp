@@ -10,6 +10,7 @@
 #include <QMatrix4x4>
 #include <QVector3D>
 
+#include "robot_model.hpp"
 #include "ros_bridge.hpp"
 
 class Cloud3DView : public QOpenGLWidget, protected QOpenGLFunctions {
@@ -23,6 +24,10 @@ public:
   void setShowScan(bool on) {show_scan_ = on; update();}
   void setTopView(bool on);
   bool hasNewData() const;
+  // Modelo del robot (lo posee MainWindow); null = flecha. update() tras cambiar sus ángulos.
+  void setModel(RobotModel * m) {model_ = m; model_dirty_ = true; update();}
+  // Nube de un PLY cargado (x,y,z); vacía = quitarla
+  void setStaticCloud(std::vector<float> xyz);
 
 public slots:
   void resetView();
@@ -40,7 +45,20 @@ private:
   void syncBuffers();
   void drawLines(const std::vector<float> & xyz, GLenum mode, const QColor & c, const QMatrix4x4 & mvp);
 
+  struct GlSub {QOpenGLBuffer vbo{QOpenGLBuffer::VertexBuffer}, ibo{QOpenGLBuffer::IndexBuffer}; int n = 0;};
+  void uploadModel();
+  void drawModel(const QMatrix4x4 & mvp);
+
   RosBridge * bridge_;
+  RobotModel * model_ = nullptr;
+  bool model_dirty_ = false;
+  std::vector<std::vector<GlSub>> gl_meshes_;
+  QOpenGLShaderProgram model_prog_;
+  QOpenGLBuffer static_vbo_{QOpenGLBuffer::VertexBuffer};
+  std::vector<float> static_pending_;
+  bool static_dirty_ = false;
+  size_t static_count_ = 0;
+  float static_zmin_ = 0, static_zmax_ = 1;
   QOpenGLShaderProgram prog_;
   QOpenGLBuffer map_vbo_{QOpenGLBuffer::VertexBuffer};
   QOpenGLBuffer scan_vbo_{QOpenGLBuffer::VertexBuffer};
@@ -48,7 +66,7 @@ private:
 
   size_t map_uploaded_ = 0, map_capacity_ = 0, scan_count_ = 0;
   uint64_t seen_epoch_ = ~0ull, seen_scan_ = ~0ull;
-  uint64_t seen_map_version_ = ~0ull, seen_pose_version_ = ~0ull;
+  uint64_t seen_map_version_ = ~0ull, seen_pose_version_ = ~0ull, seen_joint_version_ = ~0ull;
   float zmin_ = -1, zmax_ = 2;
 
   // Cámara orbital (Z arriba)

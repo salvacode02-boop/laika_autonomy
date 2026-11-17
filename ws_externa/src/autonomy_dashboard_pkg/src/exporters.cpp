@@ -222,6 +222,11 @@ QString writeGeoTiff(const QString & path, const ExportSnapshot & s)
   TIFFSetField(tif, TIFFTAG_PLANARCONFIG, PLANARCONFIG_CONTIG);
   TIFFSetField(tif, TIFFTAG_COMPRESSION, COMPRESSION_NONE);
   TIFFSetField(tif, TIFFTAG_ROWSPERSTRIP, TIFFDefaultStripSize(tif, 0));
+  // Geometría exacta para recargar el mapa (mapio.cpp: geotiffToGrid). Mantener el formato sincronizado.
+  const QByteArray desc = QString("laika-geotiff v1 res=%1 f=%2 L=%3 T=%4 mw=%5 mh=%6 xmax=%7 ymax=%8")
+    .arg(g.res, 0, 'g', 10).arg(f).arg(L).arg(T).arg(map_w).arg(map_h)
+    .arg(x_max, 0, 'g', 12).arg(y_max, 0, 'g', 12).toUtf8();
+  TIFFSetField(tif, TIFFTAG_IMAGEDESCRIPTION, desc.constData());
 
   // X = x_max + T*px - px*fila ;  Y = y_max + L*px - px*columna
   double m[16] = {
