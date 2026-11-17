@@ -1,0 +1,25 @@
+# Autonomy Dashboard (~/RRL-2026-Robot) adaptado a Laika. Uso: scripts/dashboard.sh
+autonomy_dashboard_node:
+  ros__parameters:
+    team_name: "Laika"
+    mission: "Go2"
+    output_dir: "/home/robotica/laika/maps/dashboard"
+    map_frame: "map"
+    max_mapping_time: 1200
+    auto_export_enabled: false
+    auto_export_time: 1200
+    geotiff_px_per_cell: 2
+    autostart: false
+
+    topics:
+      cloud: "/utlidar/cloud_deskewed"   # nube del L1 ya corregida, frame odom → map por la TF de slam_toolbox/AMCL
+      grid: "/map"                       # slam_toolbox (--slam) o map_server (mapa guardado)
+      odom: "/utlidar/robot_odom"        # frame odom; la pose en map sale de la TF map ← base_link
+      objects: "/autonomy/detected_objects"
+
+    cloud:
+      voxel_size: 0.05
+      min_range: 0.6            # zona ciega del L1 y cuerpo del robot
+      max_range: 15.0
+      max_map_points: 4000000
+      max_scan_points: 20000
