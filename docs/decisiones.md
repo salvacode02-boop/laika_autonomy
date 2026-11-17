@@ -259,3 +259,7 @@ Puente armado, sin Nav2. Las órdenes las genera `scripts/prueba_movimiento.py`.
 - Plazos con `time.monotonic()` también con cable. Parámetros de prueba: `dry_run_keys_topic` (Int32 con teclas simuladas; solo con salida distinta de `/api/sport/request`).
 - Base, puente y Nav2 van en la sesión tmux remota `laika4r` (logs `~/laika4r_<panel>.log`); cerrar la tmux local no detiene nada. Parar: L2+Y o `laika_fase4_parar.sh`.
 - Sin implementar: verificación de "control encendido" en el watchdog (depende de una medición en curso).
+
+## 2026-11-16 · Dashboard bloques C y D
+- Mapas cargados: GeoTIFF se decodifica con la geometría guardada en el propio TIFF (no hace falta un .pgm aparte); PLY se proyecta a rejilla con banda 0.10-0.93 m sobre el piso (percentil 2 de z). Se convierte a `maps/cargados/` y `laika_fase4.sh --mapa` lo copia al robot.
+- Modelo del robot: la cinemática se calcula en el dashboard con `/joint_states`; no se usa `robot_state_publisher` (raíz `base` ≠ `base_link`; no se toca el árbol TF que usan Nav2/SLAM), aunque está instalado en el robot.

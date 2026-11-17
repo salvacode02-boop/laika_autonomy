@@ -2,6 +2,7 @@
 
 #include <cmath>
 
+#include <QElapsedTimer>
 #include <QMouseEvent>
 #include <QWheelEvent>
 
@@ -276,6 +277,12 @@ void Cloud3DView::drawLines(const std::vector<float> & xyz, GLenum mode, const Q
 
 void Cloud3DView::paintGL()
 {
+  if (qEnvironmentVariableIsSet("DASHBOARD_FPS")) {  // medición: cuadros 3D por segundo
+    static int frames = 0;
+    static QElapsedTimer clk;
+    if (!clk.isValid()) {clk.start();}
+    if (++frames == 100) {qInfo("FPS 3D: %.1f", 100000.0 / clk.restart()); frames = 0;}
+  }
   syncBuffers();
   if (model_dirty_) {uploadModel();}
   if (static_dirty_) {
