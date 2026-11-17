@@ -141,10 +141,14 @@ RosBridge::RosBridge()
   goal_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>(t_goal, 10);
   init_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(t_init, 10);
   dead_pub_ = create_publisher<std_msgs::msg::Empty>(t_dead, 10);
+  speed_pub_ = create_publisher<std_msgs::msg::Float32>("/laika/vel_ruta", 10);
   appr_pub_ = create_publisher<std_msgs::msg::String>(t_appr, 10);
   // Repite a 5 Hz solo una aprobación real: si repitiera '' pisaría la de aprobar_rutas.py corriendo a la vez
   // (en modo con cable el puente alternaría entre aprobado y no aprobado). '' se publica una vez por meta nueva.
   appr_timer_ = create_wall_timer(std::chrono::milliseconds(200), [this] {
+      std_msgs::msg::Float32 v;
+      v.data = static_cast<float>(route_speed_.load());
+      speed_pub_->publish(v);  // velocidad de ruta, a 5 Hz junto con la aprobación
       std_msgs::msg::String s;
       {
         std::lock_guard<std::mutex> lk(appr_mx);

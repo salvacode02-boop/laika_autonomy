@@ -2,7 +2,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
-from laika_slam.sport_logic import (remote_keys, remote_event, limit_cmd, goal_key, move_command, SinCable)
+from laika_slam.sport_logic import (remote_keys, remote_event, limit_cmd, goal_key, move_command, SinCable, ruta_vmax)
 
 b = [0] * 40
 b[2], b[3] = 0x10, 0x04
@@ -26,6 +26,13 @@ assert limit_cmd(0.1, 0, 0.1) == (0.25, 0.0, 0.1)  # caminando, el giro pequeño
 assert limit_cmd(0.01, 0, 0.03) is None            # ruido: no se sube al mínimo
 assert limit_cmd(0, 0, -0.2) == (0.0, 0.0, -0.4)
 assert limit_cmd(0, 0, 0) is None and limit_cmd(-0.1, 0, 0) is None
+# velocidad de ruta: escala la salida de Nav2 (tope 0.3) a la elegida, acotada a [0.25, 0.5]
+assert abs(limit_cmd(0.3, 0, 0, vmax=0.45)[0] - 0.45) < 1e-9
+assert limit_cmd(1.0, 0, 0, vmax=0.9)[0] == 0.5
+assert limit_cmd(0.15, 0, 0, vmax=0.45)[0] == 0.25        # 0.225 -> mínimo de marcha
+assert limit_cmd(0.3, 0, 0, vmax=0.1)[0] == 0.25          # más lento que 0.25 no camina
+assert ruta_vmax(float('nan')) == 0.3
+assert move_command(10.0, (0.3, 0.0, 0.0), 9.9, 9.8, True, vmax=0.4)[0] == 0.4
 assert limit_cmd(float('nan'), 0, 0) is None and limit_cmd(0.1, 0, float('inf')) is None
 
 c = (0.2, 0.0, 0.1)

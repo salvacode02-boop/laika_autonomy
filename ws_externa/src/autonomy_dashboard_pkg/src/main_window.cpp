@@ -5,6 +5,7 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QInputDialog>
 #include <QPlainTextEdit>
@@ -713,6 +714,20 @@ QWidget * MainWindow::buildNavCard()
   nav_route_ = label("Sin meta", "topicName");
   nav_route_->setWordWrap(true);
   v->addWidget(nav_route_);
+  {  // Velocidad de ruta: el puente escala la salida de Nav2 (tope 0.3) a este valor
+    auto * row = new QHBoxLayout;
+    row->addWidget(label("Velocidad de ruta", "topicName"));
+    auto * spd = new QDoubleSpinBox;
+    spd->setRange(0.25, 0.50);  // < 0.25 el Go2 no da pasos; 0.5 es el tope del puente
+    spd->setSingleStep(0.05);
+    spd->setDecimals(2);
+    spd->setValue(0.30);
+    spd->setSuffix(" m/s");
+    spd->setToolTip("Velocidad a la que el robot recorre la ruta (0.25–0.50 m/s). Más rápido = más distancia para frenar con L2+Y.");
+    connect(spd, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this](double v) {bridge_->setRouteSpeed(v);});
+    row->addWidget(spd);
+    v->addLayout(row);
+  }
   btn_approve_ = new QPushButton("Aprobar ruta");
   btn_approve_->setObjectName("primary");
   btn_approve_->setCursor(Qt::PointingHandCursor);

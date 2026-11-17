@@ -153,6 +153,7 @@ public:
   void publishGoal(double x, double y, double yaw);
   void publishInitialPose(double x, double y, double yaw);
   void publishDeadman();
+  void setRouteSpeed(double v) {route_speed_ = v;}  // m/s; el puente la acota a [0.25, 0.5]
   void approve();
   Tf2D lookupMapFrom(const std::string & frame);
 
@@ -199,6 +200,8 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr goal_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr init_pub_;
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr dead_pub_;
+  rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr speed_pub_;
+  std::atomic<double> route_speed_{0.30};
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr appr_pub_;
   rclcpp::TimerBase::SharedPtr appr_timer_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;

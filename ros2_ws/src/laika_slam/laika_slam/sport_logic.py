@@ -3,7 +3,8 @@ import math
 
 KEYS_ACTIVATE = 1040  # R2+X (medido en /lowstate)
 KEYS_STOP = 2080      # L2+Y
-VX_MAX, WZ_MAX = 0.3, 0.5
+VX_MAX, WZ_MAX = 0.3, 0.5  # VX_MAX = tope de Nav2 (DWB/RPP); el puente lo escala a la velocidad de ruta
+VX_HARD = 0.5  # tope absoluto de la velocidad de ruta elegida en el dashboard
 # Paso 6: con vx < ~0.25 o giro en el lugar < 0.4 rad/s el Go2 solo inclina el cuerpo.
 VX_MIN, WZ_MIN = 0.25, 0.4
 NOISE_VX, NOISE_WZ = 0.02, 0.05  # por debajo de esto se toma como cero (no se sube al mínimo)
@@ -29,11 +30,17 @@ def remote_event(keys, prev_keys):
     return None
 
 
-def limit_cmd(vx, vy, wz):
-    """(vx, 0, wz) limitado, o None si hay NaN/inf o el comando queda en cero."""
+def ruta_vmax(v):
+    """Velocidad de ruta pedida, acotada a [VX_MIN, VX_HARD] (NaN/inf -> VX_MAX)."""
+    return min(max(v, VX_MIN), VX_HARD) if math.isfinite(v) else VX_MAX
+
+
+def limit_cmd(vx, vy, wz, vmax=VX_MAX):
+    """(vx, 0, wz) limitado, o None si hay NaN/inf o el comando queda en cero.
+    vmax: velocidad de ruta; la salida de Nav2 (0..VX_MAX) se escala a 0..vmax."""
     if not all(math.isfinite(v) for v in (vx, vy, wz)):
         return None
-    vx = min(max(vx, 0.0), VX_MAX)  # sin reversa
+    vx = min(max(vx, 0.0), VX_MAX) * ruta_vmax(vmax) / VX_MAX  # sin reversa
     wz = min(max(wz, -WZ_MAX), WZ_MAX)
     vx = 0.0 if vx < NOISE_VX else max(vx, VX_MIN)  # zona muerta de la marcha: subir al mínimo que da pasos
     wz = 0.0 if abs(wz) < NOISE_WZ else wz
@@ -47,13 +54,13 @@ def goal_key(x, y, qz, qw):
     return '%.3f,%.3f,%.3f,%.3f' % (x, y, qz, qw)
 
 
-def move_command(now, cmd, t_cmd, t_deadman, approved):
+def move_command(now, cmd, t_cmd, t_deadman, approved, vmax=VX_MAX):
     """Comando limitado si todo esta en regla; None si hay que parar."""
     if cmd is None or t_cmd is None or t_deadman is None or not approved:
         return None
     if now - t_cmd > CMD_TIMEOUT or now - t_deadman > DEADMAN_TIMEOUT:
         return None
-    return limit_cmd(*cmd)
+    return limit_cmd(*cmd, vmax=vmax)
 
 
 META_TIMEOUT = 90.0   # modo sin cable: tope de una meta en RUN
