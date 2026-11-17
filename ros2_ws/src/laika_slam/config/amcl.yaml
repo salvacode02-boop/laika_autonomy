@@ -24,6 +24,3 @@ amcl:
     save_pose_rate: 0.5
     tf_broadcast: true
     set_initial_pose: false
-map_server:
-  ros__parameters:
-    yaml_filename: /home/unitree/laika_maps/fase2_cuarto1.yaml
