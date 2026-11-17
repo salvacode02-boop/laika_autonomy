@@ -1,0 +1,2 @@
+Copia de unitreerobotics/unitree_ros robots/go2_description (commit 157ff95, BSD-3, ver LICENSE).
+Paquete catkin (ROS 1): COLCON_IGNORE; el dashboard lee urdf/ y dae/ directamente. Se omitió meshes/ (idéntico a dae/).
