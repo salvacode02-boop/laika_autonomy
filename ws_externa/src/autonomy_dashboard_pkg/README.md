@@ -242,3 +242,17 @@ RoboCup Rescue Team 2026
 - Fast-LIO2 SLAM
 - Nav2 Framework
 - PyQt5 Documentation
+
+## Laika: navegación, metas y hombre muerto (bloques A y B)
+
+Copia adaptada en `ws_externa/` (la original de RRL no se toca). Se lanza con `scripts/dashboard.sh` (config `config/dashboard_laika.yaml`).
+
+- **Capas 2D** (casillas en la barra lateral): costmap global y local (`/global_costmap/costmap`, `/local_costmap/costmap`; el local se lleva a `map` con la TF), ruta global `/plan` (verde), ruta local `/local_plan` (amarilla), huella (`/local_costmap/published_footprint` o la huella fija del parámetro `footprint`) y flecha de `/cmd_vel`.
+- **Panel Navegación:** estado del puente (`/laika/bridge_state`, con color), velocidad comandada (`/cmd_vel`) y real (twist de `/utlidar/robot_odom`).
+- **Herramientas Meta / Pose inicial** (botones de la vista 2D): clic = posición, arrastrar = orientación, soltar = publica `/goal_pose` o `/initialpose` (covarianza como RViz). Sin herramienta activa, pan/zoom.
+- **Aprobar ruta:** reemplaza `scripts/aprobar_rutas.py` (misma lógica y clave `goal_key`); publica `/laika/plan_approved` a 5 Hz. Funciona también con metas de RViz.
+- **Hombre muerto:** `/laika/deadman` a 5 Hz desde un QTimer del hilo de la UI (no se publica si el puente está en modo `SC:`). En modo sin cable se muestra un aviso rojo.
+- Nunca publica en `/api/sport/request` ni `/lowcmd`.
+
+### Prueba sin robot
+`scripts/dashboard_fake_nav.py [ESTADO]` simula mapa, TF, costmaps, `/plan` (tras una meta) y estado del puente. Usar SOLO en un dominio aislado (`ROS_DOMAIN_ID=77 ROS_LOCALHOST_ONLY=1`, sin `env_external.sh`). Con `DASHBOARD_SELFTEST=<carpeta>` el dashboard simula clics reales (Meta, Aprobar, Pose inicial) y guarda capturas PNG; `DASHBOARD_SELFTEST_GOAL=x,y,x2,y2` fija la meta y su arrastre (map).

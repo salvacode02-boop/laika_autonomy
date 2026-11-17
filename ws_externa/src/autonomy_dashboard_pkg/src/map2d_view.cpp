@@ -67,15 +67,13 @@ void costmapToImage(const GridData & g, QImage & img)
     for (int v = -128; v < 128; ++v) {
       QRgb c = qRgba(0, 0, 0, 0);
       if (v >= 100) {
-        c = qRgba(255, 30, 30, 200);
+        c = qPremultiply(qRgba(255, 30, 30, 200));
       } else if (v >= 98) {
-        c = qRgba(220, 40, 220, 190);
+        c = qPremultiply(qRgba(220, 40, 220, 190));
       } else if (v > 0) {
         const double t = v / 97.0;
         const int a = 40 + static_cast<int>(120 * t);
-        // premultiplicado: el color se escala por alfa
-        c = qRgba(static_cast<int>((40 + 215 * t) * a / 255), static_cast<int>((120 + 100 * t) * a / 255),
-            static_cast<int>((255 - 215 * t) * a / 255), a);
+        c = qPremultiply(qRgba(40 + 215 * t, 120 + 100 * t, 255 - 215 * t, a));
       }
       lut[static_cast<uint8_t>(v)] = c;
     }

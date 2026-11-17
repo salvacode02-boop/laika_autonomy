@@ -6,6 +6,7 @@
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QMouseEvent>
+#include <QWheelEvent>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
@@ -794,6 +795,10 @@ void MainWindow::runSelfTest(const QString & dir)
   const double gx = g[0].toDouble(), gy = g[1].toDouble(), gx2 = g[2].toDouble(), gy2 = g[3].toDouble();
 
   QTimer::singleShot(4000, this, [=] {
+      for (auto * k : findChildren<QCheckBox *>()) {if (k->text() == "Costmap global") {k->setChecked(true);}}
+      const QPointF c = map2d_->screenAt(0.5, 0.1);  // acerca el zoom sobre el robot
+      QWheelEvent w(c, map2d_->mapToGlobal(c.toPoint()), QPoint(), QPoint(0, 450), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+      QApplication::sendEvent(map2d_, &w);
       shot("01_inicio");
       btn_goal_->click();
       drag(gx, gy, gx2, gy2, "02_arrastrando_meta", dir);

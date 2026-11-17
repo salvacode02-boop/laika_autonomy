@@ -59,6 +59,7 @@ QPushButton:checked { background: #082f49; border-color: #0e7490; color: #67e8f9
 
 #primary { background: #16a34a; border: none; color: white; font-size: 15px; padding: 12px; text-align: center; }
 #primary:hover { background: #22c55e; }
+#primary:disabled { background: #1a222c; color: #4b5563; }
 #primary[state="pause"] { background: #d97706; }
 #primary[state="pause"]:hover { background: #f59e0b; }
 #danger { background: transparent; border: 1px solid #7f1d1d; color: #fca5a5; text-align: center; }
