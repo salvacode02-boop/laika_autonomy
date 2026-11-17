@@ -1,0 +1,24 @@
+autonomy_dashboard_node:
+  ros__parameters:
+    team_name: "RoboCup2026"
+    mission: "Prelim1"
+    output_dir: "/home/robotica/RRL-2026-Robot/maps"   # aquí se guardan PLY, GeoTIFF y CSV
+    map_frame: "map"
+    max_mapping_time: 1200      # 20 minutos (segundos)
+    auto_export_enabled: false  # true = el botón de auto-export empieza activado
+    auto_export_time: 1200      # cuándo dispara el auto-export (segundos de misión)
+    geotiff_px_per_cell: 2      # 2 → 0.025 m/pixel con celdas de 5 cm
+    autostart: false            # true = empieza a mapear al abrir (sin presionar START)
+
+    topics:
+      cloud: "/cloud_registered"        # escaneo de Fast-LIO (frame camera_init)
+      grid: "/projected_map"            # mapa 2D de octomap
+      odom: "/odom_corrected"           # pose del robot en frame map
+      objects: "/autonomy/detected_objects"
+
+    cloud:
+      voxel_size: 0.05          # resolución del mapa 3D acumulado (m)
+      min_range: 0.6            # quita puntos del cuerpo del robot (m)
+      max_range: 15.0
+      max_map_points: 4000000   # tope de memoria (~50 MB)
+      max_scan_points: 20000    # puntos del escaneo en vivo que se dibujan
