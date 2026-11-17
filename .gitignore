@@ -5,3 +5,6 @@
 __pycache__/
 !maps/fase2_cuarto1.pcd
 maps/dashboard/
+ws_externa/build/
+ws_externa/install/
+ws_externa/log/
