@@ -250,3 +250,12 @@ Puente armado, sin Nav2. Las órdenes las genera `scripts/prueba_movimiento.py`.
 - `nav2_servers.launch.py` recibe `planner_yaml`.
 - Dry-run: meta a 1 m → `/plan` de 45 puntos (1.16 m), Move 0.3 tras el Enter; `tmux kill-session` → StopMove y el robot queda limpio.
 - Riesgo aceptado: con `allow_unknown` puede planear por zonas no vistas; el costmap local con el scan detecta obstáculos a > 0.6 m. Guardar el mapa antes de cerrar: `scripts/guardar_mapa.sh <nombre>`.
+
+## 2026-11-16: fase 4, modo sin cable (`laika_fase4.sh --sin-cable`, dry-run)
+
+- Máquina pura `sport_logic.SinCable`: IDLE → APROBADA (Enter, clave de la meta actual) → RUN (solo R2+X desde APROBADA) → IDLE. Salen de RUN: L2+Y, status 4/5/6 de un goal nuevo de Nav2 (aparecido tras el R2+X), 90 s, watchdog de `/lf/lowstate`, meta nueva. Al salir la aprobación queda consumida (la misma clave no se reaprueba).
+- Al pasar a RUN el puente republica la última `/goal_pose` (Nav2 arranca entonces; con el puente cerrado abortaba antes). Se ignora el eco por la clave.
+- Status de Nav2 en Foxy 0.4.7: `/navigate_to_pose/_action/status` (`action_msgs/GoalStatusArray`, transient_local; oculto en `ros2 topic list` sin `--include-hidden-topics`).
+- Plazos con `time.monotonic()` también con cable. Parámetros de prueba: `dry_run_keys_topic` (Int32 con teclas simuladas; solo con salida distinta de `/api/sport/request`).
+- Base, puente y Nav2 van en la sesión tmux remota `laika4r` (logs `~/laika4r_<panel>.log`); cerrar la tmux local no detiene nada. Parar: L2+Y o `laika_fase4_parar.sh`.
+- Sin implementar: verificación de "control encendido" en el watchdog (depende de una medición en curso).
