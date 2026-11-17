@@ -263,3 +263,9 @@ Puente armado, sin Nav2. Las órdenes las genera `scripts/prueba_movimiento.py`.
 ## 2026-11-16 · Dashboard bloques C y D
 - Mapas cargados: GeoTIFF se decodifica con la geometría guardada en el propio TIFF (no hace falta un .pgm aparte); PLY se proyecta a rejilla con banda 0.10-0.93 m sobre el piso (percentil 2 de z). Se convierte a `maps/cargados/` y `laika_fase4.sh --mapa` lo copia al robot.
 - Modelo del robot: la cinemática se calcula en el dashboard con `/joint_states`; no se usa `robot_state_publisher` (raíz `base` ≠ `base_link`; no se toca el árbol TF que usan Nav2/SLAM), aunque está instalado en el robot.
+
+## 2026-11-16: velocidad de ruta desde el dashboard
+
+- Campo "Velocidad de ruta" junto a "Aprobar ruta" (0.25–0.50 m/s, por defecto 0.30). El dashboard lo publica en `/laika/vel_ruta` a 5 Hz. El puente escala la salida de Nav2 (tope 0.3) a ese valor y lo acota a [0.25, 0.5] (`VX_HARD`), sin bajar del mínimo de marcha.
+- Dry-run: con 0.45, Move `x=0.450`. El usuario lo probó armado y confirmó que funciona bien.
+- Pendiente: medir qué ve el robot con el control apagado (sin cable el control es el único freno).
