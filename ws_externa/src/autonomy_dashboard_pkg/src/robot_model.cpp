@@ -61,8 +61,11 @@ bool loadMesh(const std::string & path, Mesh & out, std::string * err)
     s.color = QVector4D(c.r, c.g, c.b, 1.f);
     s.vn.reserve(m->mNumVertices * 6);
     for (unsigned v = 0; v < m->mNumVertices; ++v) {
-      const aiVector3D & p = m->mVertices[v];
-      const aiVector3D n = m->HasNormals() ? m->mNormals[v] : aiVector3D(0, 0, 1);
+      // assimp pasa los .dae Z_UP a Y_UP con una rotación en la raíz que, horneada, anula la matriz del nodo (los
+      // eslabones salían girados 90 grados). Se deshace aquí: (x,y,z) -> (x,-z,y). Todos los .dae del Go2 son Z_UP.
+      const aiVector3D & p0 = m->mVertices[v];
+      const aiVector3D n0 = m->HasNormals() ? m->mNormals[v] : aiVector3D(0, 1, 0);
+      const aiVector3D p(p0.x, -p0.z, p0.y), n(n0.x, -n0.z, n0.y);
       s.vn.insert(s.vn.end(), {p.x, p.y, p.z, n.x, n.y, n.z});
       all.emplace_back(p.x, p.y, p.z);
     }

@@ -1085,6 +1085,10 @@ void MainWindow::runSelfTestCD(const QString & dir)
       cloud3d_->setFollow(true);
       QWheelEvent w3(QPointF(300, 300), QPointF(300, 300), QPoint(), QPoint(0, 1900), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
       QApplication::sendEvent(cloud3d_, &w3);
+      if (qEnvironmentVariableIsSet("DASHBOARD_CD_CAM")) {
+        const auto c = qEnvironmentVariable("DASHBOARD_CD_CAM").split(',');  // yaw,pitch,dist
+        cloud3d_->setCamera(c[0].toFloat(), c[1].toFloat(), c[2].toFloat());
+      }
       map2d_->setFollow(true);
       QWheelEvent w2(QPointF(300, 300), QPointF(300, 300), QPoint(), QPoint(0, 900), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
       QApplication::sendEvent(map2d_, &w2);

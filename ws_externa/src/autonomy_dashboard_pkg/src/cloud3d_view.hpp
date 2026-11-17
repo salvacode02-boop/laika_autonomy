@@ -23,6 +23,7 @@ public:
   void setFollow(bool on) {follow_ = on; update();}
   void setShowScan(bool on) {show_scan_ = on; update();}
   void setTopView(bool on);
+  void setCamera(float yaw, float pitch, float dist) {yaw_ = yaw; pitch_ = pitch; dist_ = dist; update();}  // autoprueba
   bool hasNewData() const;
   // Modelo del robot (lo posee MainWindow); null = flecha. update() tras cambiar sus ángulos.
   void setModel(RobotModel * m) {model_ = m; model_dirty_ = true; update();}
