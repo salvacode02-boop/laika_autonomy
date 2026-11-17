@@ -17,9 +17,24 @@ autonomy_dashboard_node:
       odom: "/utlidar/robot_odom"        # frame odom; la pose en map sale de la TF map ← base_link
       objects: "/autonomy/detected_objects"
 
+      # Navegación (bloques A y B del plan-dashboard)
+      global_costmap: "/global_costmap/costmap"
+      local_costmap: "/local_costmap/costmap"
+      plan: "/plan"
+      local_plan: "/local_plan"
+      cmd_vel: "/cmd_vel"
+      bridge_state: "/laika/bridge_state"
+      footprint: "/local_costmap/published_footprint"   # si no llega, se dibuja la huella fija de abajo
+      goal: "/goal_pose"
+      initialpose: "/initialpose"
+      deadman: "/laika/deadman"
+      plan_approved: "/laika/plan_approved"
+
     cloud:
       voxel_size: 0.05
       min_range: 0.6            # zona ciega del L1 y cuerpo del robot
       max_range: 15.0
       max_map_points: 4000000
       max_scan_points: 20000
+
+    footprint: [0.38, 0.18, 0.38, -0.18, -0.38, -0.18, -0.38, 0.18]   # x,y en base_link (R8 de Nav2)
