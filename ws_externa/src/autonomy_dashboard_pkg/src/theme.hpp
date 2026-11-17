@@ -78,6 +78,9 @@ QProgressBar[warn="2"]::chunk { background: #ef4444; }
 #toast[kind="err"]  { background: #2a0f0f; color: #fca5a5; border: 1px solid #7f1d1d; }
 #toast[kind="info"] { background: #0c1a26; color: #7dd3fc; border: 1px solid #0e7490; }
 
+QComboBox { background: #18212c; border: 1px solid #263445; border-radius: 6px; padding: 4px 8px; }
+QComboBox QAbstractItemView { background: #111821; border: 1px solid #263445; selection-background-color: #082f49; }
+QPlainTextEdit { background: #0d131a; border: 1px solid #1a2430; border-radius: 6px; font-family: "Ubuntu Mono", monospace; font-size: 11px; color: #cbd5e1; }
 QSplitter::handle { background: #0b0f14; }
 QScrollArea { border: none; background: #0b0f14; }
 #side { background: #0b0f14; }

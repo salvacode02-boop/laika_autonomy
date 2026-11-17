@@ -56,6 +56,31 @@ varying vec4 vColor;
 void main() { gl_FragColor = vColor; }
 )";
 
+// Modelo del robot: luz fija + color del material (aclarado para que se vea sobre fondo oscuro)
+const char * kModelVert = R"(
+#version 120
+attribute vec3 aPos;
+attribute vec3 aNrm;
+uniform mat4 uMVP;
+uniform mat4 uModel;
+varying vec3 vN;
+void main() {
+  gl_Position = uMVP * vec4(aPos, 1.0);
+  vN = mat3(uModel) * aNrm;
+}
+)";
+
+const char * kModelFrag = R"(
+#version 120
+uniform vec3 uColor;
+varying vec3 vN;
+void main() {
+  float d = abs(dot(normalize(vN), normalize(vec3(0.3, -0.5, 0.8))));
+  vec3 base = 0.28 + 0.72 * uColor;
+  gl_FragColor = vec4(base * (0.4 + 0.6 * d), 1.0);
+}
+)";
+
 }  // namespace
 
 Cloud3DView::Cloud3DView(RosBridge * bridge, QWidget * parent)
@@ -70,6 +95,8 @@ Cloud3DView::~Cloud3DView()
   map_vbo_.destroy();
   scan_vbo_.destroy();
   line_vbo_.destroy();
+  static_vbo_.destroy();
+  for (auto & m : gl_meshes_) {for (auto & g : m) {g.vbo.destroy(); g.ibo.destroy();}}
   doneCurrent();
 }
 
@@ -80,6 +107,14 @@ void Cloud3DView::initializeGL()
   prog_.addShaderFromSourceCode(QOpenGLShader::Fragment, kFrag);
   prog_.bindAttributeLocation("aPos", 0);
   prog_.link();
+
+  model_prog_.addShaderFromSourceCode(QOpenGLShader::Vertex, kModelVert);
+  model_prog_.addShaderFromSourceCode(QOpenGLShader::Fragment, kModelFrag);
+  model_prog_.bindAttributeLocation("aPos", 0);
+  model_prog_.bindAttributeLocation("aNrm", 1);
+  model_prog_.link();
+  static_vbo_.create();
+  model_dirty_ = model_ != nullptr;
 
   map_vbo_.create();
   map_vbo_.setUsagePattern(QOpenGLBuffer::DynamicDraw);
@@ -102,13 +137,14 @@ bool Cloud3DView::hasNewData() const
 {
   return bridge_->map_version.load() != seen_map_version_ ||
          (show_scan_ && bridge_->scan_version.load() != seen_scan_) ||
-         bridge_->pose_version.load() != seen_pose_version_;
+         bridge_->pose_version.load() != seen_pose_version_ || bridge_->joint_version.load() != seen_joint_version_;
 }
 
 void Cloud3DView::syncBuffers()
 {
   seen_map_version_ = bridge_->map_version.load();
   seen_pose_version_ = bridge_->pose_version.load();
+  seen_joint_version_ = bridge_->joint_version.load();
   {
     std::lock_guard<std::mutex> lk(bridge_->pose_mx);
     pose_ = bridge_->pose;
@@ -154,6 +190,76 @@ void Cloud3DView::syncBuffers()
   }
 }
 
+void Cloud3DView::setStaticCloud(std::vector<float> xyz)
+{
+  static_pending_ = std::move(xyz);
+  static_dirty_ = true;
+  if (static_pending_.size() >= 3) {
+    float zmin = 1e9f, zmax = -1e9f, cx = 0, cy = 0;
+    const size_t n = static_pending_.size() / 3;
+    for (size_t i = 0; i < n; ++i) {
+      zmin = std::min(zmin, static_pending_[3 * i + 2]);
+      zmax = std::max(zmax, static_pending_[3 * i + 2]);
+      cx += static_pending_[3 * i]; cy += static_pending_[3 * i + 1];
+    }
+    static_zmin_ = zmin;
+    static_zmax_ = std::max(zmax, zmin + 0.5f);
+    target_ = QVector3D(cx / n, cy / n, zmin);  // centra la vista en la nube
+    follow_ = false;
+  }
+  update();
+}
+
+void Cloud3DView::uploadModel()
+{
+  model_dirty_ = false;
+  for (auto & m : gl_meshes_) {for (auto & g : m) {g.vbo.destroy(); g.ibo.destroy();}}
+  gl_meshes_.clear();
+  if (!model_) {return;}
+  for (const auto & mesh : model_->meshes()) {
+    gl_meshes_.emplace_back();
+    for (const auto & s : mesh.subs) {
+      GlSub g;
+      g.vbo.create(); g.vbo.bind();
+      g.vbo.allocate(s.vn.data(), static_cast<int>(s.vn.size() * sizeof(float)));
+      g.vbo.release();
+      g.ibo.create(); g.ibo.bind();
+      g.ibo.allocate(s.idx.data(), static_cast<int>(s.idx.size() * sizeof(unsigned)));
+      g.ibo.release();
+      g.n = static_cast<int>(s.idx.size());
+      gl_meshes_.back().push_back(g);
+    }
+  }
+}
+
+void Cloud3DView::drawModel(const QMatrix4x4 & mvp)
+{
+  const QMatrix4x4 base = RobotModel::poseMatrix(pose_.x, pose_.y, pose_.z, pose_.qx, pose_.qy, pose_.qz, pose_.qw);
+  model_prog_.bind();
+  model_prog_.enableAttributeArray(0);
+  model_prog_.enableAttributeArray(1);
+  for (const auto & in : model_->instances()) {
+    const QMatrix4x4 m = base * model_->linkPose(in.link) * in.visual;
+    model_prog_.setUniformValue("uMVP", mvp * m);
+    model_prog_.setUniformValue("uModel", m);
+    const auto & subs = model_->meshes()[in.mesh].subs;
+    for (size_t k = 0; k < subs.size(); ++k) {
+      GlSub & g = gl_meshes_[in.mesh][k];
+      model_prog_.setUniformValue("uColor", subs[k].color.toVector3D());
+      g.vbo.bind();
+      g.ibo.bind();
+      model_prog_.setAttributeBuffer(0, GL_FLOAT, 0, 3, 6 * sizeof(float));
+      model_prog_.setAttributeBuffer(1, GL_FLOAT, 3 * sizeof(float), 3, 6 * sizeof(float));
+      glDrawElements(GL_TRIANGLES, g.n, GL_UNSIGNED_INT, nullptr);
+      g.ibo.release();
+      g.vbo.release();
+    }
+  }
+  model_prog_.disableAttributeArray(0);
+  model_prog_.disableAttributeArray(1);
+  model_prog_.release();
+}
+
 void Cloud3DView::drawLines(const std::vector<float> & xyz, GLenum mode, const QColor & c, const QMatrix4x4 & mvp)
 {
   if (xyz.empty()) {return;}
@@ -171,6 +277,16 @@ void Cloud3DView::drawLines(const std::vector<float> & xyz, GLenum mode, const Q
 void Cloud3DView::paintGL()
 {
   syncBuffers();
+  if (model_dirty_) {uploadModel();}
+  if (static_dirty_) {
+    static_dirty_ = false;
+    static_count_ = static_pending_.size() / 3;
+    static_vbo_.bind();
+    static_vbo_.allocate(static_pending_.data(), static_cast<int>(static_pending_.size() * sizeof(float)));
+    static_vbo_.release();
+    static_pending_.clear();
+    static_pending_.shrink_to_fit();
+  }
 
   const float dpr = devicePixelRatioF();
   glViewport(0, 0, static_cast<int>(width() * dpr), static_cast<int>(height() * dpr));
@@ -216,6 +332,20 @@ void Cloud3DView::paintGL()
     map_vbo_.release();
   }
 
+  // Nube de un PLY cargado (color por altura propio)
+  if (static_count_ > 0) {
+    static_vbo_.bind();
+    prog_.setUniformValue("uMVP", mvp);
+    prog_.setUniformValue("uMode", 0);
+    prog_.setUniformValue("uZmin", static_zmin_);
+    prog_.setUniformValue("uZmax", static_zmax_);
+    prog_.setUniformValue("uSize", 2.0f * dpr);
+    prog_.enableAttributeArray(0);
+    prog_.setAttributeBuffer(0, GL_FLOAT, 0, 3);
+    glDrawArrays(GL_POINTS, 0, static_cast<GLsizei>(static_count_));
+    static_vbo_.release();
+  }
+
   // Escaneo en vivo (blanco translúcido)
   if (show_scan_ && scan_count_ > 0) {
     scan_vbo_.bind();
@@ -240,8 +370,12 @@ void Cloud3DView::paintGL()
     if (pl.size() >= 6) {drawLines(pl, GL_LINE_STRIP, theme::kPath, mvp);}
   }
 
-  // Robot: flecha en el plano XY
-  if (pose_.valid) {
+  // Robot: modelo del Go2 (o flecha si no cargó)
+  if (pose_.valid && model_ && !gl_meshes_.empty()) {
+    prog_.release();
+    drawModel(mvp);
+    prog_.bind();
+  } else if (pose_.valid) {
     const float x = pose_.x, y = pose_.y, z = pose_.z;
     const float c = std::cos(pose_.yaw), s = std::sin(pose_.yaw);
     auto P = [&](float fx, float fy) {return std::array<float, 3>{x + c * fx - s * fy, y + s * fx + c * fy, z};};

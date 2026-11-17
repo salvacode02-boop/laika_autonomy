@@ -247,8 +247,25 @@ void Map2DView::paintEvent(QPaintEvent *)
     p.drawEllipse(toScreen(path_[0][0], path_[0][1]), 4, 4);
   }
 
-  // Robot: flecha orientada
-  if (pose_.valid) {
+  // Robot: silueta del modelo vista desde arriba (casco XY de cada eslabón, relleno WindingFill = unión)
+  if (pose_.valid && !sil_.empty()) {
+    QPainterPath sp;
+    sp.setFillRule(Qt::WindingFill);
+    for (const auto & poly : sil_) {
+      QPolygonF q;
+      for (const auto & w : poly) {q << toScreen(w.x(), w.y());}
+      sp.addPolygon(q);
+      sp.closeSubpath();
+    }
+    p.setPen(QPen(QColor(8, 47, 73), 1.5));
+    p.setBrush(QColor(34, 211, 238, 220));
+    p.drawPath(sp);
+    // Rumbo: tick desde el centro hacia el frente
+    const QPointF c = toScreen(pose_.x, pose_.y);
+    const QPointF f = toScreen(pose_.x + 0.45 * std::cos(pose_.yaw), pose_.y + 0.45 * std::sin(pose_.yaw));
+    p.setPen(QPen(QColor(8, 47, 73), 2));
+    p.drawLine(c, f);
+  } else if (pose_.valid) {  // sin modelo: flecha orientada
     const QPointF c = toScreen(pose_.x, pose_.y);
     const double r = 11;
     p.save();

@@ -37,6 +37,8 @@ int main(int argc, char ** argv)
   win.show();
   if (qEnvironmentVariableIsSet("DASHBOARD_SELFTEST")) {win.runSelfTest(qEnvironmentVariable("DASHBOARD_SELFTEST"));}
 
+  if (qEnvironmentVariableIsSet("DASHBOARD_SELFTEST_CD")) {win.runSelfTestCD(qEnvironmentVariable("DASHBOARD_SELFTEST_CD"));}
+
   // Ctrl+C (o ros2 launch al cerrar) apaga rclcpp: cerrar también la ventana
   QTimer watchdog;
   QObject::connect(&watchdog, &QTimer::timeout, [&] {if (!rclcpp::ok()) {app.quit();}});

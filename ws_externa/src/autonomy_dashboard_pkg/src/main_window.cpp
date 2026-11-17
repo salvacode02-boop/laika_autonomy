@@ -4,6 +4,12 @@
 
 #include <QApplication>
 #include <QCheckBox>
+#include <QComboBox>
+#include <QFileDialog>
+#include <QInputDialog>
+#include <QPlainTextEdit>
+#include <QProcess>
+#include <QRegularExpression>
 #include <QCloseEvent>
 #include <QMouseEvent>
 #include <QWheelEvent>
@@ -122,6 +128,21 @@ MainWindow::MainWindow(std::shared_ptr<RosBridge> bridge)
   split->addWidget(buildCard("Nube 3D", "arrastra: girar · clic der: mover · rueda: zoom",
     cloud3d_, {reset3d, top3d, follow3d, scan3d}));
   split->setSizes({1, 1});
+
+  // Modelo del Go2 (bloque D): si no carga, quedan la flecha y el aviso
+  model_ = std::make_unique<RobotModel>();
+  {
+    QElapsedTimer t;
+    t.start();
+    std::string err;
+    if (model_->load(bridge_->model_dir + "/urdf/go2_description.urdf", bridge_->model_dir, &err)) {
+      qInfo("Modelo del robot: %zu triangulos, %lld ms", model_->triangles(), static_cast<long long>(t.elapsed()));
+      cloud3d_->setModel(model_.get());
+    } else {
+      qWarning("Modelo del robot no disponible: %s", err.c_str());
+      model_.reset();
+    }
+  }
   body->addWidget(split, 1);
   body->addWidget(buildSidebar());
   v->addLayout(body, 1);
@@ -141,6 +162,7 @@ MainWindow::MainWindow(std::shared_ptr<RosBridge> bridge)
   dead->start(200);
 
   connect(&export_watcher_, &QFutureWatcher<QStringList>::finished, this, &MainWindow::onExportDone);
+  connect(&load_watcher_, &QFutureWatcher<LoadedMap>::finished, this, &MainWindow::onMapLoaded);
 
   start_time_ = QDateTime::currentDateTime();
   setMission(Mission::Idle);
@@ -228,6 +250,7 @@ QWidget * MainWindow::buildSidebar()
   v->setContentsMargins(0, 0, 0, 0);
   v->setSpacing(12);
 
+  v->addWidget(buildRobotCard());
   v->addWidget(buildNavCard());
   v->addWidget(buildLayersCard());
 
@@ -360,7 +383,7 @@ QWidget * MainWindow::buildSidebar()
 void MainWindow::onFrame()
 {
   const uint64_t gv = bridge_->grid_version.load();
-  if (gv != seen_grid_) {
+  if (gv != seen_grid_ && !loaded_active_) {  // con un mapa cargado en pantalla, /map no lo pisa
     seen_grid_ = gv;
     std::lock_guard<std::mutex> lk(bridge_->grid_mx);
     map2d_->setGrid(bridge_->grid);
@@ -380,7 +403,36 @@ void MainWindow::onFrame()
   }
   updateNav();
   updateApproval();
+  updateModel();
   if (cloud3d_->isVisible() && cloud3d_->hasNewData()) {cloud3d_->update();}
+}
+
+// Cinemática del modelo con /joint_states (sin datos recientes: postura de pie) y silueta 2D
+void MainWindow::updateModel()
+{
+  if (!model_) {return;}
+  const uint64_t jv = bridge_->joint_version.load(), pv = bridge_->pose_version.load();
+  const int64_t last = bridge_->joint_last_ns.load();
+  const bool stale = !last || (std::chrono::steady_clock::now().time_since_epoch().count() - last) > 2000000000LL;
+  if (jv == seen_joint_ && pv == seen_model_pose_ && stale == joints_stale_) {return;}
+  seen_joint_ = jv;
+  seen_model_pose_ = pv;
+  joints_stale_ = stale;
+  std::map<std::string, double> q;
+  if (!stale) {
+    std::lock_guard<std::mutex> lk(bridge_->joint_mx);
+    q = bridge_->joints;
+  }
+  model_->setJoints(q);
+  Pose2D p;
+  {
+    std::lock_guard<std::mutex> lk(bridge_->pose_mx);
+    p = bridge_->pose;
+  }
+  if (p.valid) {
+    map2d_->setSilhouette(model_->silhouette(RobotModel::poseMatrix(p.x, p.y, p.z, p.qx, p.qy, p.qz, p.qw)));
+  }
+  cloud3d_->update();
 }
 
 void MainWindow::updateNav()
@@ -453,6 +505,184 @@ void MainWindow::updateApproval()
   } else {
     nav_route_->setText("Sin meta");
   }
+}
+
+QWidget * MainWindow::buildRobotCard()
+{
+  auto * c = new QWidget;
+  c->setObjectName("card");
+  auto * v = new QVBoxLayout(c);
+  v->setContentsMargins(12, 10, 12, 12);
+  v->setSpacing(6);
+  v->addWidget(label("ROBOT", "sideTitle"));
+  auto * g = new QGridLayout;
+  g->setHorizontalSpacing(8);
+  g->setColumnStretch(1, 1);
+  auto combo = [&](int row, const QString & name, const QStringList & items) {
+      g->addWidget(label(name, "statLabel"), row, 0);
+      auto * cb = new QComboBox;
+      cb->addItems(items);
+      g->addWidget(cb, row, 1);
+      return cb;
+    };
+  cb_map_ = combo(0, "Mapa", {"En vivo (SLAM)", "Cargado: (ninguno)"});
+  cb_cable_ = combo(1, "Cable", {"Con cable", "Sin cable"});
+  cb_mode_ = combo(2, "Modo", {"Prueba", "Armado"});
+  v->addLayout(g);
+  connect(cb_map_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int i) {
+      if (i == 0 && loaded_active_) {loaded_active_ = false; seen_grid_ = ~0ull; cloud3d_->setStaticCloud({});}  // vuelve a /map
+    });
+
+  auto * row = new QHBoxLayout;
+  btn_start_ = new QPushButton("Arrancar");
+  btn_start_->setObjectName("primary");
+  btn_stop_ = new QPushButton("Parar");
+  btn_stop_->setObjectName("danger");
+  for (auto * b : {btn_start_, btn_stop_}) {b->setCursor(Qt::PointingHandCursor); row->addWidget(b);}
+  v->addLayout(row);
+  btn_load_ = new QPushButton("Cargar mapa…");
+  btn_load_->setToolTip("Mapas .yaml/.pgm, o GeoTIFF y PLY exportados por este dashboard");
+  btn_savemap_ = new QPushButton("Guardar mapa (.pgm/.yaml)");
+  btn_savemap_->setToolTip("scripts/guardar_mapa.sh: map_saver_cli sobre /map -> maps/<nombre>");
+  for (auto * b : {btn_load_, btn_savemap_}) {b->setCursor(Qt::PointingHandCursor); v->addWidget(b);}
+  log_ = new QPlainTextEdit;
+  log_->setReadOnly(true);
+  log_->setMaximumBlockCount(300);
+  log_->setFixedHeight(130);
+  log_->setPlaceholderText("Salida de los scripts…");
+  v->addWidget(log_);
+
+  start_proc_ = new QProcess(this);
+  stop_proc_ = new QProcess(this);
+  save_proc_ = new QProcess(this);
+  connect(btn_start_, &QPushButton::clicked, this, &MainWindow::onStart);
+  connect(btn_stop_, &QPushButton::clicked, this, &MainWindow::onStop);
+  connect(btn_load_, &QPushButton::clicked, this, [this] {
+      const QString dir = QString::fromStdString(bridge_->laika_dir) + "/maps";
+      const QString f = QFileDialog::getOpenFileName(this, "Cargar mapa", dir, "Mapas (*.yaml *.tiff *.tif *.ply)");
+      if (!f.isEmpty()) {loadMapFile(f);}
+    });
+  connect(btn_savemap_, &QPushButton::clicked, this, &MainWindow::onSaveMap);
+  return c;
+}
+
+void MainWindow::log(const QString & text)
+{
+  for (const QString & l : text.split('\n')) {
+    const QString t = l.trimmed();
+    if (!t.isEmpty()) {log_->appendPlainText(t);}
+  }
+}
+
+// Los scripts corren en procesos aparte; stdout+stderr van al panel de mensajes.
+void MainWindow::runScript(QProcess * proc, const QString & script, const QStringList & args, const QString & what)
+{
+  proc->disconnect(this);
+  proc->setProcessChannelMode(QProcess::MergedChannels);
+  proc->setWorkingDirectory(QString::fromStdString(bridge_->laika_dir));
+  connect(proc, &QProcess::readyReadStandardOutput, this, [this, proc] {log(QString::fromUtf8(proc->readAllStandardOutput()));});
+  connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, [this, what](int code, QProcess::ExitStatus) {
+      log(QString("[%1] terminó (código %2)").arg(what).arg(code));
+      toast(QString("%1: %2").arg(what, code == 0 ? "listo" : QString("falló (código %1), ver mensajes").arg(code)), code == 0 ? "ok" : "err");
+    });
+  connect(proc, &QProcess::errorOccurred, this, [this, what](QProcess::ProcessError) {
+      log(QString("[%1] no se pudo ejecutar").arg(what));
+    });
+  log(QString("[%1] %2 %3").arg(what, QFileInfo(script).fileName(), args.join(' ')));
+  proc->start("bash", QStringList{script} + args);
+  proc->closeWriteChannel();  // que ssh/scp no esperen stdin
+}
+
+void MainWindow::onStart()
+{
+  if (start_proc_->state() != QProcess::NotRunning) {
+    toast("Arrancar ya está en curso", "warn");
+    return;
+  }
+  const bool armed = cb_mode_->currentIndex() == 1, loaded = cb_map_->currentIndex() == 1;
+  if (loaded && map_yaml_.isEmpty()) {
+    toast("Primero carga un mapa (Cargar mapa…) o elige Mapa = En vivo", "warn");
+    return;
+  }
+  if (armed) {
+    const auto r = QMessageBox::warning(this, "Modo ARMADO",
+      "El robot podrá caminar solo.\n\nCuando presiones R2+X en el control y apruebes una ruta, el puente "
+      "mandará movimiento real al robot.\nTenlo despejado, con el control en la mano (L2+Y lo detiene).\n\n"
+      "¿Arrancar en modo ARMADO?", QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (r != QMessageBox::Yes) {return;}
+  }
+  QStringList a;
+  if (loaded) {a << "--mapa" << map_yaml_;} else {a << "--slam";}
+  if (cb_cable_->currentIndex() == 1) {a << "--sin-cable";}
+  if (!armed) {a << "--prueba";}
+  a << "--sin-attach" << "--sin-rviz";  // sin tmux attach ni RViz: el dashboard es la interfaz
+  runScript(start_proc_, QString::fromStdString(bridge_->laika_dir) + "/scripts/laika_fase4.sh", a, "Arrancar");
+}
+
+void MainWindow::onStop()
+{
+  if (stop_proc_->state() != QProcess::NotRunning) {
+    toast("Parar ya está en curso", "warn");
+    return;
+  }
+  runScript(stop_proc_, QString::fromStdString(bridge_->laika_dir) + "/scripts/laika_fase4_parar.sh", {}, "Parar");
+}
+
+void MainWindow::onSaveMap()
+{
+  if (save_proc_->state() != QProcess::NotRunning) {return;}
+  bool ok = false;
+  const QString name = QInputDialog::getText(this, "Guardar mapa", "Nombre (sin extensión):", QLineEdit::Normal, "mapa", &ok);
+  if (!ok) {return;}
+  if (!QRegularExpression("^[A-Za-z0-9_.-]+$").match(name).hasMatch()) {
+    toast("Nombre no válido: usa letras, números, _ - .", "err");
+    return;
+  }
+  const QString file = QString::fromStdString(bridge_->laika_dir) + "/maps/" + name + ".yaml";
+  if (QFileInfo::exists(file) &&
+    QMessageBox::question(this, "Guardar mapa", name + ".yaml ya existe. ¿Sobrescribir?") != QMessageBox::Yes) {return;}
+  runScript(save_proc_, QString::fromStdString(bridge_->laika_dir) + "/scripts/guardar_mapa.sh", {name}, "Guardar mapa");
+}
+
+// Convierte (hilo aparte) el archivo elegido a .pgm+.yaml en maps/cargados/ y lo muestra en 2D (sin publicarlo a ROS)
+void MainWindow::loadMapFile(const QString & file)
+{
+  if (loading_) {return;}
+  PlyParams pp;
+  pp.res = bridge_->ply_res;
+  pp.floor_percentile = bridge_->ply_floor_pct;
+  pp.band_min = bridge_->ply_band_min;
+  pp.band_max = bridge_->ply_band_max;
+  pp.floor_tol = bridge_->ply_floor_tol;
+  pp.min_points = bridge_->ply_min_points;
+  loading_ = true;
+  btn_load_->setEnabled(false);
+  log("[Cargar] " + file);
+  toast("Cargando mapa…", "info");
+  const QString out = QString::fromStdString(bridge_->laika_dir) + "/maps/cargados";
+  load_watcher_.setFuture(QtConcurrent::run([file, out, pp] {return loadMap(file, out, pp);}));
+}
+
+void MainWindow::onMapLoaded()
+{
+  loading_ = false;
+  btn_load_->setEnabled(true);
+  const LoadedMap r = load_watcher_.result();
+  if (!r.error.isEmpty()) {
+    log("[Cargar] ✗ " + r.error);
+    toast("No se cargó el mapa: " + r.error, "err");
+    return;
+  }
+  map_yaml_ = r.yaml;
+  loaded_active_ = true;
+  map2d_->setGrid(r.grid);
+  map2d_->fit();
+  cloud3d_->setStaticCloud(r.cloud);
+  cb_map_->setItemText(1, "Cargado: " + QFileInfo(r.yaml).completeBaseName());
+  cb_map_->setCurrentIndex(1);
+  log(QString("[Cargar] ✓ %1 · %2×%3 celdas a %4 m · %5").arg(r.note).arg(r.grid.width).arg(r.grid.height)
+    .arg(r.grid.res).arg(r.yaml));
+  toast("Mapa cargado: " + QFileInfo(r.yaml).fileName() + " (listo para Arrancar con Mapa = Cargado)", "ok");
 }
 
 void MainWindow::onDeadman()
@@ -764,6 +994,13 @@ void MainWindow::repolish(QWidget * w)
 
 void MainWindow::closeEvent(QCloseEvent * e)
 {
+  if (start_proc_->state() != QProcess::NotRunning || stop_proc_->state() != QProcess::NotRunning ||
+    save_proc_->state() != QProcess::NotRunning || loading_)
+  {
+    toast("Espera a que terminen Arrancar/Parar/Guardar/Cargar antes de cerrar", "warn");
+    e->ignore();
+    return;
+  }
   if (exporting_) {
     toast("Espera a que termine la exportación antes de cerrar", "warn");
     e->ignore();
@@ -814,4 +1051,72 @@ void MainWindow::runSelfTest(const QString & dir)
       drag(0.0, 0.0, 0.5, 0.0, "05_arrastrando_pose", dir);
   });
   QTimer::singleShot(12000, this, [=] {shot("06_final"); QApplication::quit();});
+}
+
+// ---------------------------------------------------------------------------
+// Prueba automática de los bloques C y D. Variables:
+//   DASHBOARD_CD_LOAD=<archivo>   carga ese mapa (como "Cargar mapa…")
+//   DASHBOARD_CD_RUN=live|loaded  Arrancar en Prueba + Con cable (nunca Armado), espera, captura y Parar
+//   DASHBOARD_CD_WAIT=<s>         espera con el robot arrancado (45 por defecto)
+//   DASHBOARD_CD_EXPORT=1         exporta GeoTIFF y PLY (nombres fijos en maps/dashboard) antes de salir
+// ---------------------------------------------------------------------------
+void MainWindow::runSelfTestCD(const QString & dir)
+{
+  QDir().mkpath(dir);
+  auto shot = [this, dir](const QString & n) {grab().save(QDir(dir).filePath(n + ".png"));};
+  const QString load = qEnvironmentVariable("DASHBOARD_CD_LOAD"), run = qEnvironmentVariable("DASHBOARD_CD_RUN");
+  const int wait_s = qEnvironmentVariable("DASHBOARD_CD_WAIT", "45").toInt();
+  int t = 3000;
+  QTimer::singleShot(t, this, [=] {
+      shot("c01_inicio");
+      if (!load.isEmpty()) {loadMapFile(load);}
+    });
+  t += 6000;
+  QTimer::singleShot(t, this, [=] {
+      shot("c02_mapa_cargado");
+      if (run == "live") {cb_map_->setCurrentIndex(0);} else if (run == "loaded") {cb_map_->setCurrentIndex(1);}
+      cb_cable_->setCurrentIndex(0);
+      cb_mode_->setCurrentIndex(0);  // Prueba: la autoprueba nunca arma el robot
+      if (!run.isEmpty()) {btn_start_->click();}
+    });
+  t += wait_s * 1000;
+  QTimer::singleShot(t, this, [=] {
+      // Acerca ambas vistas al robot (modelo y silueta)
+      cloud3d_->setFollow(true);
+      QWheelEvent w3(QPointF(300, 300), QPointF(300, 300), QPoint(), QPoint(0, 1900), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+      QApplication::sendEvent(cloud3d_, &w3);
+      map2d_->setFollow(true);
+      QWheelEvent w2(QPointF(300, 300), QPointF(300, 300), QPoint(), QPoint(0, 900), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+      QApplication::sendEvent(map2d_, &w2);
+    });
+  t += 1500;
+  QTimer::singleShot(t, this, [=] {
+      shot("c03_corriendo");
+      if (model_ && qEnvironmentVariableIsSet("DASHBOARD_CD_DEBUG")) {
+        for (size_t i = 0; i < model_->linkCount(); ++i) {
+          const auto c = model_->linkPose(i).column(3);
+          qInfo("link %zu: %.3f %.3f %.3f", i, c.x(), c.y(), c.z());
+        }
+      }
+      if (qEnvironmentVariableIsSet("DASHBOARD_CD_EXPORT")) {
+        const QString d = QString::fromStdString(bridge_->laika_dir) + "/maps/dashboard/";
+        ExportSnapshot s;
+        s.team = "Laika"; s.mission = "selftest"; s.start_time = start_time_;
+        s.px_per_cell = bridge_->geotiff_px_per_cell;
+        { std::lock_guard<std::mutex> lk(bridge_->cloud_mx); s.map_xyz = bridge_->map_xyz; if (s.map_xyz.empty()) {s.map_xyz = bridge_->scan_xyz;} }
+        { std::lock_guard<std::mutex> lk(bridge_->grid_mx); s.grid = bridge_->grid; }
+        { std::lock_guard<std::mutex> lk(bridge_->pose_mx); s.path = bridge_->path; s.pose = bridge_->pose; }
+        writePgmYaml(d + "selftest_orig", s.grid);  // referencia para comparar con lo que decodifica el GeoTIFF
+        qInfo("EXPORT tiff: '%s'  ply: '%s'", qPrintable(writeGeoTiff(d + "selftest.tiff", s)), qPrintable(writePly(d + "selftest-3D.ply", s)));
+      }
+      if (!run.isEmpty()) {btn_stop_->click();}
+    });
+  // Espera a que Parar termine (hasta 120 s) y sale
+  auto * poll = new QTimer(this);
+  QTimer::singleShot(t + 2000, this, [=] {
+      poll->start(1000);
+    });
+  connect(poll, &QTimer::timeout, this, [=] {
+      if (stop_proc_->state() == QProcess::NotRunning || run.isEmpty()) {shot("c04_final"); QApplication::quit();}
+    });
 }

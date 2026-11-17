@@ -7,6 +7,7 @@
 
 #include <QImage>
 #include <QPointF>
+#include <QPolygonF>
 #include <QWidget>
 
 #include "ros_bridge.hpp"
@@ -30,6 +31,8 @@ public:
   void setNavPaths(std::vector<std::array<float, 2>> plan, std::vector<std::array<float, 2>> local);
   // Polígono en map; vacío = usa la huella fija (x,y,... en base_link)
   void setFootprint(std::vector<std::array<float, 2>> poly, std::vector<double> fixed);
+  // Silueta del modelo (polígonos en map); vacía = flecha
+  void setSilhouette(std::vector<QPolygonF> s) {sil_ = std::move(s); update();}
   void setCmdVel(double vx, double wz) {cmd_vx_ = vx; cmd_wz_ = wz; update();}
   void setTool(Tool t);
   Tool tool() const {return tool_;}
@@ -63,6 +66,7 @@ private:
   double gcm_res_ = 0.05, gcm_ox_ = 0, gcm_oy_ = 0, lcm_res_ = 0.05, lcm_ox_ = 0, lcm_oy_ = 0;
   std::vector<std::array<float, 2>> plan_, lplan_, fp_;
   std::vector<double> fixed_fp_;
+  std::vector<QPolygonF> sil_;
   double cmd_vx_ = 0, cmd_wz_ = 0;
   bool layers_[kNumLayers] = {false, true, true, true, true, true};
   Tool tool_ = Tool::None;

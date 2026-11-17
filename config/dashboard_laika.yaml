@@ -5,6 +5,8 @@ autonomy_dashboard_node:
     mission: "Go2"
     output_dir: "/home/robotica/laika/maps/dashboard"
     map_frame: "map"
+    laika_dir: "/home/robotica/laika"                              # scripts/ (arrancar, parar, guardar_mapa) y maps/
+    model_dir: "/home/robotica/laika/ws_externa/src/go2_description"   # urdf/ y dae/ del modelo del Go2
     max_mapping_time: 1200
     auto_export_enabled: false
     auto_export_time: 1200
@@ -29,6 +31,7 @@ autonomy_dashboard_node:
       initialpose: "/initialpose"
       deadman: "/laika/deadman"
       plan_approved: "/laika/plan_approved"
+      joint_states: "/joint_states"      # nodo joint_states del robot (laika_slam): los 12 ángulos para el modelo 3D/2D
 
     cloud:
       voxel_size: 0.05
@@ -38,3 +41,14 @@ autonomy_dashboard_node:
       max_scan_points: 20000
 
     footprint: [0.38, 0.18, 0.38, -0.18, -0.38, -0.18, -0.38, 0.18]   # x,y en base_link (R8 de Nav2)
+
+    # PLY cargado -> rejilla 2D (bloque C). Alturas SOBRE EL PISO (piso = percentil bajo de z).
+    # band_max sale de pc2scan.yaml del robot: max_height 0.6 sobre base_link + piso ~0.33 m bajo base_link.
+    # band_min 0.10 (no 0.03 = min_height -0.3 + 0.33): deja fuera el propio piso (ruido de +-5 cm).
+    ply_to_grid:
+      resolution: 0.05
+      floor_percentile: 2.0
+      band_min: 0.10
+      band_max: 0.93
+      floor_tol: 0.10       # puntos a menos de esto del piso = celda libre
+      min_points: 2         # puntos en la banda para marcar ocupado

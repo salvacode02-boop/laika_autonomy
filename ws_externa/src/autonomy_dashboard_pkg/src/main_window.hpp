@@ -11,9 +11,15 @@
 #include <QMainWindow>
 #include <QStringList>
 
+#include "mapio.hpp"
+#include "robot_model.hpp"
+
 #include "ros_bridge.hpp"
 
 class QCheckBox;
+class QComboBox;
+class QPlainTextEdit;
+class QProcess;
 class QLabel;
 class QProgressBar;
 class QPushButton;
@@ -28,6 +34,8 @@ public:
   explicit MainWindow(std::shared_ptr<RosBridge> bridge);
   // Prueba automática (DASHBOARD_SELFTEST=<carpeta>): simula clics, guarda capturas y cierra
   void runSelfTest(const QString & dir);
+  // Bloques C y D: carga de mapa, arrancar/parar y modelo (DASHBOARD_SELFTEST_CD=<carpeta> + DASHBOARD_CD_*)
+  void runSelfTestCD(const QString & dir);
 
 protected:
   void closeEvent(QCloseEvent * e) override;
@@ -38,6 +46,7 @@ private slots:
   void onPrimary();    // START / PAUSE / RESUME
   void onReset();
   void onExportDone();
+  void onMapLoaded();
   void onDeadman();    // 5 Hz, desde el hilo de la UI: si la UI se congela, el robot se corta
 
 private:
@@ -48,6 +57,14 @@ private:
   QWidget * buildSidebar();
   QWidget * buildNavCard();
   QWidget * buildLayersCard();
+  QWidget * buildRobotCard();
+  void onStart();
+  void onStop();
+  void onSaveMap();
+  void loadMapFile(const QString & file);
+  void runScript(QProcess * proc, const QString & script, const QStringList & args, const QString & what);
+  void log(const QString & text);
+  void updateModel();
   void updateNav();
   void updateApproval();
   QWidget * statBox(const QString & label, QLabel ** value);
@@ -99,4 +116,19 @@ private:
   QLabel * nav_route_ = nullptr, * nav_sc_ = nullptr;
   bool sc_mode_ = false;
   std::string local_frame_;
+
+  // Panel Robot: scripts en procesos aparte (la UI no se bloquea: el hombre muerto sale de ella)
+  QComboBox * cb_map_ = nullptr, * cb_cable_ = nullptr, * cb_mode_ = nullptr;
+  QPushButton * btn_start_ = nullptr, * btn_stop_ = nullptr, * btn_load_ = nullptr, * btn_savemap_ = nullptr;
+  QPlainTextEdit * log_ = nullptr;
+  QProcess * start_proc_ = nullptr, * stop_proc_ = nullptr, * save_proc_ = nullptr;
+  QFutureWatcher<LoadedMap> load_watcher_;
+  bool loading_ = false;
+  QString map_yaml_;            // mapa cargado (.yaml local) que usa "Arrancar" con Mapa = Cargado
+  bool loaded_active_ = false;  // el 2D muestra el mapa cargado en vez de /map
+
+  // Modelo del robot
+  std::unique_ptr<RobotModel> model_;
+  uint64_t seen_joint_ = ~0ull, seen_model_pose_ = ~0ull;
+  bool joints_stale_ = true;
 };
