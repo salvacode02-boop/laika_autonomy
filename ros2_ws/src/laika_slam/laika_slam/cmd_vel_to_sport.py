@@ -6,7 +6,7 @@ from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from action_msgs.msg import GoalStatusArray
 from geometry_msgs.msg import PoseStamped, Twist
-from std_msgs.msg import Empty, Int32, String
+from std_msgs.msg import Empty, Float32, Int32, String
 from unitree_api.msg import Request
 from unitree_go.msg import LowState
 
@@ -33,6 +33,8 @@ class CmdVelToSport(Node):
         self.create_subscription(Empty, '/laika/deadman', self.dead_cb, 10)
         self.create_subscription(PoseStamped, '/goal_pose', self.goal_cb, 10)
         self.create_subscription(String, '/laika/plan_approved', self.appr_cb, 10)
+        self.vmax = L.VX_MAX  # velocidad de ruta (dashboard, /laika/vel_ruta)
+        self.create_subscription(Float32, '/laika/vel_ruta', self.vel_cb, 10)
         self.active = self.force and self.sc is None
         if self.sc:
             self.goal_pub = self.create_publisher(PoseStamped, '/goal_pose', 10)
@@ -116,6 +118,12 @@ class CmdVelToSport(Node):
                 self.goal_msg = m
             self.sc_result(self.sc.on_goal(self.goal), 'Meta nueva')
 
+    def vel_cb(self, m):
+        v = L.ruta_vmax(m.data)
+        if v != self.vmax:
+            self.get_logger().info('Velocidad de ruta: %.2f m/s' % v)
+        self.vmax = v
+
     def appr_cb(self, m):
         self.approved_key = m.data
         if self.sc:
@@ -135,9 +143,9 @@ class CmdVelToSport(Node):
         if now < self.stop_until:
             self.send(API_STOP)
         elif self.active:
-            c = (L.move_command(now, self.cmd, self.t_cmd, now, True) if self.sc  # RUN: sin deadman
+            c = (L.move_command(now, self.cmd, self.t_cmd, now, True, self.vmax) if self.sc  # RUN: sin deadman
                  else L.move_command(now, self.cmd, self.t_cmd, self.t_dead,
-                                     self.goal is not None and self.approved_key == self.goal))
+                                     self.goal is not None and self.approved_key == self.goal, self.vmax))
             if c:
                 self.moving = True
                 self.send(API_MOVE, '{"x": %.3f, "y": %.3f, "z": %.3f}' % c)
