@@ -13,7 +13,12 @@
 #include <rclcpp/rclcpp.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <nav_msgs/msg/occupancy_grid.hpp>
+#include <geometry_msgs/msg/polygon_stamped.hpp>
+#include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
+#include <geometry_msgs/msg/twist.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <nav_msgs/msg/path.hpp>
+#include <std_msgs/msg/empty.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/string.hpp>
@@ -38,6 +43,32 @@ struct Poi {
   std::string type, name;
   double x = 0, y = 0, z = 0;
   int time_s = 0;
+};
+
+// Transformación 2D (rígida) de un frame a map
+struct Tf2D {
+  double x = 0, y = 0, yaw = 0;
+  bool valid = false;
+};
+
+// Datos de navegación (Nav2 + puente), protegidos por nav_mx. Las rutas y la huella
+// ya están en frame map; el costmap local se guarda con su frame y la UI lo transforma.
+struct NavData {
+  GridData global_cm, local_cm;
+  std::string local_frame = "odom";
+  std::vector<std::array<float, 2>> plan, local_plan, footprint;  // footprint: vacía = no hay
+  double cmd_vx = 0, cmd_wz = 0;
+  std::string bridge_state;
+};
+
+// Aprobación de ruta (protegida por appr_mx): misma lógica que scripts/aprobar_rutas.py
+struct ApprovalData {
+  std::string key, approved;
+  double gx = 0, gy = 0, gyaw = 0;
+  bool pending = false;   // meta nueva sin plan mostrado
+  bool waiting = false;   // plan mostrado, esperando aprobación
+  int n = 0;
+  double length = 0;
 };
 
 // Contador de mensajes por topic, para mostrar Hz y si está vivo
@@ -90,7 +121,26 @@ public:
   std::atomic<int> elapsed_s{0};
   std::atomic<bool> tf_ok{false};
 
-  std::array<TopicStat, 4> stats;  // cloud, grid, odom, objects
+  // cloud, grid, odom, objects, global_costmap, local_costmap, plan, local_plan, cmd_vel, bridge_state
+  static constexpr size_t kStats = 10;
+  std::array<TopicStat, kStats> stats;
+
+  // --- Navegación (nav_mx) y aprobación (appr_mx)
+  std::vector<double> fixed_footprint;  // huella fija x,y,... en base_link (parámetro)
+  std::mutex nav_mx;
+  NavData nav;
+  std::atomic<uint64_t> nav_version{0};
+  std::atomic<double> real_vx{0}, real_wz{0};  // twist de la odometría
+  std::mutex appr_mx;
+  ApprovalData appr;
+  std::atomic<uint64_t> appr_version{0};
+
+  // Se llaman desde el hilo de la UI (publish es thread-safe)
+  void publishGoal(double x, double y, double yaw);
+  void publishInitialPose(double x, double y, double yaw);
+  void publishDeadman();
+  void approve();
+  Tf2D lookupMapFrom(const std::string & frame);
 
   void clearMission();
   void requestOctomapReset();
@@ -101,6 +151,17 @@ private:
   void odomCb(const nav_msgs::msg::Odometry::ConstSharedPtr msg);
   void objectsCb(const std_msgs::msg::String::ConstSharedPtr msg);
   void publishStatus();
+  void goalCb(const geometry_msgs::msg::PoseStamped::ConstSharedPtr msg);
+  void planCb(const nav_msgs::msg::Path::ConstSharedPtr msg);
+  void localPlanCb(const nav_msgs::msg::Path::ConstSharedPtr msg);
+  void costmapCb(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr msg, bool global);
+  void footprintCb(const geometry_msgs::msg::PolygonStamped::ConstSharedPtr msg);
+  void cmdCb(const geometry_msgs::msg::Twist::ConstSharedPtr msg);
+  void stateCb(const std_msgs::msg::String::ConstSharedPtr msg);
+  std::vector<std::array<float, 2>> pathToMap(const nav_msgs::msg::Path & p);
+  nav_msgs::msg::Path last_plan_;  // solo hilo ROS
+  bool have_plan_ = false;
+  void evalPlan(const nav_msgs::msg::Path & p);  // llamar con appr_mx tomado
 
   double voxel_ = 0.05, min_range_ = 0.6, max_range_ = 15.0;
   size_t max_map_points_ = 4000000, max_scan_points_ = 20000;
@@ -114,6 +175,17 @@ private:
   rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr grid_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr objects_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr goal_sub_;
+  rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr plan_sub_, lplan_sub_;
+  rclcpp::Subscription<nav_msgs::msg::OccupancyGrid>::SharedPtr gcm_sub_, lcm_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PolygonStamped>::SharedPtr fp_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr state_sub_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr goal_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr init_pub_;
+  rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr dead_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr appr_pub_;
+  rclcpp::TimerBase::SharedPtr appr_timer_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr area_pub_;

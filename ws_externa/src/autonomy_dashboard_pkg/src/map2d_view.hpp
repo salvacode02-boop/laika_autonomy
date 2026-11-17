@@ -20,11 +20,31 @@ public:
   void setGrid(const GridData & g);
   void setPose(const Pose2D & p);
   void setPath(std::vector<std::array<float, 3>> path);
+  enum Layer {kGlobalCm, kLocalCm, kPlan, kLocalPlan, kFootprint, kCmdVel, kNumLayers};
+  enum class Tool {None, Goal, InitPose};
+
+  void setLayer(Layer l, bool on) {layers_[l] = on; update();}
+  void setGlobalCostmap(const GridData & g);
+  void setLocalCostmap(const GridData & g, const Tf2D & to_map);  // to_map: frame del costmap -> map
+  void setLocalTf(const Tf2D & t) {local_tf_ = t; update();}
+  void setNavPaths(std::vector<std::array<float, 2>> plan, std::vector<std::array<float, 2>> local);
+  // Polígono en map; vacío = usa la huella fija (x,y,... en base_link)
+  void setFootprint(std::vector<std::array<float, 2>> poly, std::vector<double> fixed);
+  void setCmdVel(double vx, double wz) {cmd_vx_ = vx; cmd_wz_ = wz; update();}
+  void setTool(Tool t);
+  Tool tool() const {return tool_;}
+  // Orientación (rad) de un arrastre de (x0,y0) a (x1,y1); 0 si casi no se movió
+  static double dragYaw(double x0, double y0, double x1, double y1);
+  QPointF worldAt(const QPointF & screen) const {return toWorld(screen);}
+  QPointF screenAt(double x, double y) const {return toScreen(x, y);}
   void setFollow(bool on) {follow_ = on; update();}
   bool follow() const {return follow_;}
 
 public slots:
   void fit();
+
+signals:
+  void poseChosen(int tool, double x, double y, double yaw);  // tool = Tool
 
 protected:
   void paintEvent(QPaintEvent *) override;
@@ -38,7 +58,16 @@ private:
   QPointF toScreen(double x, double y) const;
   QPointF toWorld(const QPointF & s) const;
 
-  QImage img_;
+  QImage img_, gcm_img_, lcm_img_;
+  Tf2D local_tf_;
+  double gcm_res_ = 0.05, gcm_ox_ = 0, gcm_oy_ = 0, lcm_res_ = 0.05, lcm_ox_ = 0, lcm_oy_ = 0;
+  std::vector<std::array<float, 2>> plan_, lplan_, fp_;
+  std::vector<double> fixed_fp_;
+  double cmd_vx_ = 0, cmd_wz_ = 0;
+  bool layers_[kNumLayers] = {false, true, true, true, true, true};
+  Tool tool_ = Tool::None;
+  bool placing_ = false;
+  QPointF place0_, place1_;  // inicio y posición actual del arrastre (mundo)
   double res_ = 0.05, ox_ = 0, oy_ = 0;
   int gw_ = 0, gh_ = 0;
   Pose2D pose_;

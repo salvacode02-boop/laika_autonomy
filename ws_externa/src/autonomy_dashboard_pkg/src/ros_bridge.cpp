@@ -70,6 +70,26 @@ RosBridge::RosBridge()
   stats[1].name = t_grid;
   stats[2].name = t_odom;
   stats[3].name = t_obj;
+  const auto t_gcm = declare_parameter<std::string>("topics.global_costmap", "/global_costmap/costmap");
+  const auto t_lcm = declare_parameter<std::string>("topics.local_costmap", "/local_costmap/costmap");
+  const auto t_plan = declare_parameter<std::string>("topics.plan", "/plan");
+  const auto t_lplan = declare_parameter<std::string>("topics.local_plan", "/local_plan");
+  const auto t_cmd = declare_parameter<std::string>("topics.cmd_vel", "/cmd_vel");
+  const auto t_state = declare_parameter<std::string>("topics.bridge_state", "/laika/bridge_state");
+  const auto t_fp = declare_parameter<std::string>("topics.footprint", "/local_costmap/published_footprint");
+  const auto t_goal = declare_parameter<std::string>("topics.goal", "/goal_pose");
+  const auto t_init = declare_parameter<std::string>("topics.initialpose", "/initialpose");
+  const auto t_dead = declare_parameter<std::string>("topics.deadman", "/laika/deadman");
+  const auto t_appr = declare_parameter<std::string>("topics.plan_approved", "/laika/plan_approved");
+  const auto fp_param = declare_parameter<std::vector<double>>(
+    "footprint", std::vector<double>{0.38, 0.18, 0.38, -0.18, -0.38, -0.18, -0.38, 0.18});  // x,y en base_link
+  fixed_footprint = fp_param;
+  stats[4].name = t_gcm;
+  stats[5].name = t_lcm;
+  stats[6].name = t_plan;
+  stats[7].name = t_lplan;
+  stats[8].name = t_cmd;
+  stats[9].name = t_state;
 
   map_xyz.reserve(3 * 500000);
   voxels_.reserve(500000);
@@ -87,6 +107,32 @@ RosBridge::RosBridge()
     t_odom, rclcpp::SensorDataQoS(), std::bind(&RosBridge::odomCb, this, _1));
   objects_sub_ = create_subscription<std_msgs::msg::String>(
     t_obj, 10, std::bind(&RosBridge::objectsCb, this, _1));
+
+  const auto rel = rclcpp::QoS(2).reliable();
+  gcm_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
+    t_gcm, rel, [this](nav_msgs::msg::OccupancyGrid::ConstSharedPtr m) {costmapCb(m, true);});
+  lcm_sub_ = create_subscription<nav_msgs::msg::OccupancyGrid>(
+    t_lcm, rel, [this](nav_msgs::msg::OccupancyGrid::ConstSharedPtr m) {costmapCb(m, false);});
+  plan_sub_ = create_subscription<nav_msgs::msg::Path>(t_plan, 10, std::bind(&RosBridge::planCb, this, _1));
+  lplan_sub_ = create_subscription<nav_msgs::msg::Path>(t_lplan, 10, std::bind(&RosBridge::localPlanCb, this, _1));
+  fp_sub_ = create_subscription<geometry_msgs::msg::PolygonStamped>(
+    t_fp, 10, std::bind(&RosBridge::footprintCb, this, _1));
+  cmd_sub_ = create_subscription<geometry_msgs::msg::Twist>(t_cmd, 10, std::bind(&RosBridge::cmdCb, this, _1));
+  state_sub_ = create_subscription<std_msgs::msg::String>(t_state, 10, std::bind(&RosBridge::stateCb, this, _1));
+  goal_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(t_goal, 10, std::bind(&RosBridge::goalCb, this, _1));
+  goal_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>(t_goal, 10);
+  init_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(t_init, 10);
+  dead_pub_ = create_publisher<std_msgs::msg::Empty>(t_dead, 10);
+  appr_pub_ = create_publisher<std_msgs::msg::String>(t_appr, 10);
+  // Aprobación periódica a 5 Hz, como aprobar_rutas.py (vacía = sin aprobación)
+  appr_timer_ = create_wall_timer(std::chrono::milliseconds(200), [this] {
+      std_msgs::msg::String s;
+      {
+        std::lock_guard<std::mutex> lk(appr_mx);
+        s.data = appr.approved;
+      }
+      appr_pub_->publish(s);
+    });
 
   status_pub_ = create_publisher<std_msgs::msg::String>("/autonomy/status", 10);
   pose_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>("/autonomy/robot_pose", 10);
@@ -221,6 +267,8 @@ void RosBridge::gridCb(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr msg)
 void RosBridge::odomCb(const nav_msgs::msg::Odometry::ConstSharedPtr msg)
 {
   tick(stats[2]);
+  real_vx = msg->twist.twist.linear.x;
+  real_wz = msg->twist.twist.angular.z;
   auto p = msg->pose.pose.position;
   auto q = msg->pose.pose.orientation;
   // Laika: la odometría viene en odom; la pose en el mapa sale de la TF map ← child_frame_id
@@ -360,3 +408,199 @@ void RosBridge::requestOctomapReset()
     octomap_reset_->async_send_request(std::make_shared<std_srvs::srv::Empty::Request>());
   }
 }
+
+// ---------------------------------------------------------------------------
+// Navegación
+// ---------------------------------------------------------------------------
+Tf2D RosBridge::lookupMapFrom(const std::string & frame)
+{
+  Tf2D t;
+  if (frame == map_frame || frame.empty()) {t.valid = true; return t;}
+  try {
+    const auto tf = tf_buffer_->lookupTransform(map_frame, frame, tf2::TimePointZero);
+    const auto & q = tf.transform.rotation;
+    t.x = tf.transform.translation.x;
+    t.y = tf.transform.translation.y;
+    t.yaw = yawFromQuat(q.x, q.y, q.z, q.w);
+    t.valid = true;
+  } catch (const tf2::TransformException &) {}
+  return t;
+}
+
+std::vector<std::array<float, 2>> RosBridge::pathToMap(const nav_msgs::msg::Path & p)
+{
+  std::vector<std::array<float, 2>> out;
+  const Tf2D t = lookupMapFrom(p.header.frame_id);
+  if (!t.valid) {return out;}
+  const double c = std::cos(t.yaw), s = std::sin(t.yaw);
+  out.reserve(p.poses.size());
+  for (const auto & ps : p.poses) {
+    const double x = ps.pose.position.x, y = ps.pose.position.y;
+    out.push_back({float(t.x + c * x - s * y), float(t.y + s * x + c * y)});
+  }
+  return out;
+}
+
+void RosBridge::costmapCb(const nav_msgs::msg::OccupancyGrid::ConstSharedPtr msg, bool global)
+{
+  tick(stats[global ? 4 : 5]);
+  GridData g;
+  g.width = static_cast<int>(msg->info.width);
+  g.height = static_cast<int>(msg->info.height);
+  g.res = msg->info.resolution;
+  g.ox = msg->info.origin.position.x;
+  g.oy = msg->info.origin.position.y;
+  g.data = msg->data;
+  std::lock_guard<std::mutex> lk(nav_mx);
+  if (global) {
+    nav.global_cm = std::move(g);
+  } else {
+    nav.local_cm = std::move(g);
+    nav.local_frame = msg->header.frame_id;
+  }
+  nav_version++;
+}
+
+void RosBridge::localPlanCb(const nav_msgs::msg::Path::ConstSharedPtr msg)
+{
+  tick(stats[7]);
+  auto v = pathToMap(*msg);
+  std::lock_guard<std::mutex> lk(nav_mx);
+  nav.local_plan = std::move(v);
+  nav_version++;
+}
+
+void RosBridge::footprintCb(const geometry_msgs::msg::PolygonStamped::ConstSharedPtr msg)
+{
+  const Tf2D t = lookupMapFrom(msg->header.frame_id);
+  if (!t.valid) {return;}
+  const double c = std::cos(t.yaw), s = std::sin(t.yaw);
+  std::vector<std::array<float, 2>> v;
+  for (const auto & p : msg->polygon.points) {v.push_back({float(t.x + c * p.x - s * p.y), float(t.y + s * p.x + c * p.y)});}
+  std::lock_guard<std::mutex> lk(nav_mx);
+  nav.footprint = std::move(v);
+  nav_version++;
+}
+
+void RosBridge::cmdCb(const geometry_msgs::msg::Twist::ConstSharedPtr msg)
+{
+  tick(stats[8]);
+  std::lock_guard<std::mutex> lk(nav_mx);
+  nav.cmd_vx = msg->linear.x;
+  nav.cmd_wz = msg->angular.z;
+  nav_version++;
+}
+
+void RosBridge::stateCb(const std_msgs::msg::String::ConstSharedPtr msg)
+{
+  tick(stats[9]);
+  std::lock_guard<std::mutex> lk(nav_mx);
+  nav.bridge_state = msg->data;
+  nav_version++;
+}
+
+namespace {
+std::string goalKey(double x, double y, double qz, double qw)
+{
+  char b[128];
+  std::snprintf(b, sizeof b, "%.3f,%.3f,%.3f,%.3f", x, y, qz, qw);  // = sport_logic.goal_key
+  return b;
+}
+}  // namespace
+
+// Primer plan de una meta nueva cuyo final está a < 0.5 m de la meta (los de la meta anterior se ignoran)
+void RosBridge::evalPlan(const nav_msgs::msg::Path & m)
+{
+  if (!appr.pending || m.poses.size() < 2) {return;}
+  const auto & e = m.poses.back().pose.position;
+  if (std::hypot(e.x - appr.gx, e.y - appr.gy) > 0.5) {return;}
+  double len = 0;
+  for (size_t i = 1; i < m.poses.size(); ++i) {
+    len += std::hypot(m.poses[i].pose.position.x - m.poses[i - 1].pose.position.x,
+        m.poses[i].pose.position.y - m.poses[i - 1].pose.position.y);
+  }
+  appr.n = static_cast<int>(m.poses.size());
+  appr.length = len;
+  appr.pending = false;
+  appr.waiting = true;
+  appr_version++;
+}
+
+void RosBridge::planCb(const nav_msgs::msg::Path::ConstSharedPtr msg)
+{
+  tick(stats[6]);
+  auto v = pathToMap(*msg);
+  {
+    std::lock_guard<std::mutex> lk(nav_mx);
+    nav.plan = std::move(v);
+    nav_version++;
+  }
+  last_plan_ = *msg;
+  have_plan_ = true;
+  std::lock_guard<std::mutex> lk(appr_mx);
+  evalPlan(*msg);
+}
+
+void RosBridge::goalCb(const geometry_msgs::msg::PoseStamped::ConstSharedPtr msg)
+{
+  const auto & p = msg->pose;
+  const std::string key = goalKey(p.position.x, p.position.y, p.orientation.z, p.orientation.w);
+  bool sc;
+  {
+    std::lock_guard<std::mutex> lk(nav_mx);
+    sc = nav.bridge_state.rfind("SC:", 0) == 0;
+  }
+  {
+    std::lock_guard<std::mutex> lk(appr_mx);
+    if (key == appr.key && sc) {return;}  // eco de la meta republicada por el puente al pasar a RUN
+    appr.key = key;
+    appr.gyaw = yawFromQuat(p.orientation.x, p.orientation.y, p.orientation.z, p.orientation.w);
+    appr.gx = p.position.x;
+    appr.gy = p.position.y;
+    appr.approved.clear();
+    appr.pending = true;
+    appr.waiting = false;
+    appr_version++;
+    if (have_plan_) {evalPlan(last_plan_);}  // el plan pudo llegar antes que la meta
+  }
+  std_msgs::msg::String s;  // invalida la aprobación anterior
+  appr_pub_->publish(s);
+}
+
+void RosBridge::approve()
+{
+  std::lock_guard<std::mutex> lk(appr_mx);
+  if (!appr.waiting) {return;}
+  appr.approved = appr.key;
+  appr.waiting = false;
+  appr_version++;
+}
+
+void RosBridge::publishGoal(double x, double y, double yaw)
+{
+  geometry_msgs::msg::PoseStamped m;
+  m.header.frame_id = map_frame;
+  m.header.stamp = now();
+  m.pose.position.x = x;
+  m.pose.position.y = y;
+  m.pose.orientation.z = std::sin(yaw / 2);
+  m.pose.orientation.w = std::cos(yaw / 2);
+  goal_pub_->publish(m);
+}
+
+void RosBridge::publishInitialPose(double x, double y, double yaw)
+{
+  geometry_msgs::msg::PoseWithCovarianceStamped m;
+  m.header.frame_id = map_frame;
+  m.header.stamp = now();
+  m.pose.pose.position.x = x;
+  m.pose.pose.position.y = y;
+  m.pose.pose.orientation.z = std::sin(yaw / 2);
+  m.pose.pose.orientation.w = std::cos(yaw / 2);
+  m.pose.covariance[0] = 0.25;      // como RViz
+  m.pose.covariance[7] = 0.25;
+  m.pose.covariance[35] = 0.0685;   // yaw
+  init_pub_->publish(m);
+}
+
+void RosBridge::publishDeadman() {dead_pub_->publish(std_msgs::msg::Empty());}

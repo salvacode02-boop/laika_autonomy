@@ -2,7 +2,10 @@
 
 #include <cmath>
 
+#include <QApplication>
+#include <QCheckBox>
 #include <QCloseEvent>
+#include <QMouseEvent>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFileInfo>
@@ -77,6 +80,31 @@ MainWindow::MainWindow(std::shared_ptr<RosBridge> bridge)
   connect(fit2d, &QPushButton::clicked, map2d_, &Map2DView::fit);
   connect(follow2d, &QPushButton::toggled, this, [this](bool on) {map2d_->setFollow(on);});
 
+  btn_goal_ = toolButton("Meta", true);
+  btn_init_ = toolButton("Pose inicial", true);
+  btn_goal_->setToolTip("Clic = posición, arrastrar = orientación, soltar = publica /goal_pose");
+  btn_init_->setToolTip("Clic = posición, arrastrar = orientación, soltar = publica /initialpose");
+  // Excluyentes; sin ninguna activa el ratón hace pan/zoom
+  connect(btn_goal_, &QPushButton::toggled, this, [this](bool on) {
+      if (on) {btn_init_->setChecked(false);}
+      map2d_->setTool(on ? Map2DView::Tool::Goal : (btn_init_->isChecked() ? Map2DView::Tool::InitPose : Map2DView::Tool::None));
+    });
+  connect(btn_init_, &QPushButton::toggled, this, [this](bool on) {
+      if (on) {btn_goal_->setChecked(false);}
+      map2d_->setTool(on ? Map2DView::Tool::InitPose : (btn_goal_->isChecked() ? Map2DView::Tool::Goal : Map2DView::Tool::None));
+    });
+  connect(map2d_, &Map2DView::poseChosen, this, [this](int tool, double x, double y, double yaw) {
+      if (tool == static_cast<int>(Map2DView::Tool::Goal)) {
+        bridge_->publishGoal(x, y, yaw);
+        toast(QString("Meta publicada: %1, %2 m, %3°").arg(x, 0, 'f', 2).arg(y, 0, 'f', 2).arg(yaw * 180 / M_PI, 0, 'f', 0), "info");
+      } else {
+        bridge_->publishInitialPose(x, y, yaw);
+        toast(QString("Pose inicial publicada: %1, %2 m, %3°").arg(x, 0, 'f', 2).arg(y, 0, 'f', 2).arg(yaw * 180 / M_PI, 0, 'f', 0), "info");
+      }
+      btn_goal_->setChecked(false);  // como RViz: una herramienta, un uso
+      btn_init_->setChecked(false);
+    });
+
   auto * reset3d = toolButton("Vista inicial");
   auto * top3d = toolButton("Planta", true);
   auto * follow3d = toolButton("Seguir robot", true);
@@ -89,7 +117,7 @@ MainWindow::MainWindow(std::shared_ptr<RosBridge> bridge)
 
   auto * split = new QSplitter(Qt::Horizontal);
   split->setHandleWidth(12);
-  split->addWidget(buildCard("Mapa 2D", QString::fromStdString(bridge_->stats[1].name), map2d_, {fit2d, follow2d}));
+  split->addWidget(buildCard("Mapa 2D", QString::fromStdString(bridge_->stats[1].name), map2d_, {btn_goal_, btn_init_, fit2d, follow2d}));
   split->addWidget(buildCard("Nube 3D", "arrastra: girar · clic der: mover · rueda: zoom",
     cloud3d_, {reset3d, top3d, follow3d, scan3d}));
   split->setSizes({1, 1});
@@ -106,6 +134,10 @@ MainWindow::MainWindow(std::shared_ptr<RosBridge> bridge)
   connect(sec, &QTimer::timeout, this, &MainWindow::onSecond);
   sec->start(1000);
   hz_clock_.start();
+  // Hombre muerto: timer de la UI (no del hilo ROS) para que un congelamiento corte el robot
+  auto * dead = new QTimer(this);
+  connect(dead, &QTimer::timeout, this, &MainWindow::onDeadman);
+  dead->start(200);
 
   connect(&export_watcher_, &QFutureWatcher<QStringList>::finished, this, &MainWindow::onExportDone);
 
@@ -195,6 +227,9 @@ QWidget * MainWindow::buildSidebar()
   v->setContentsMargins(0, 0, 0, 0);
   v->setSpacing(12);
 
+  v->addWidget(buildNavCard());
+  v->addWidget(buildLayersCard());
+
   // --- Misión
   auto * mcard = new QWidget;
   mcard->setObjectName("card");
@@ -237,7 +272,7 @@ QWidget * MainWindow::buildSidebar()
   auto * tg = new QGridLayout;
   tg->setHorizontalSpacing(8);
   tg->setVerticalSpacing(4);
-  for (int i = 0; i < 4; ++i) {
+  for (size_t i = 0; i < RosBridge::kStats; ++i) {
     topic_dot_[i] = new QLabel("●");
     topic_hz_[i] = label("—", "topicHz");
     tg->addWidget(topic_dot_[i], i, 0);
@@ -342,7 +377,154 @@ void MainWindow::onFrame()
     map2d_->setPose(p);
     map2d_->setPath(std::move(path));
   }
+  updateNav();
+  updateApproval();
   if (cloud3d_->isVisible() && cloud3d_->hasNewData()) {cloud3d_->update();}
+}
+
+void MainWindow::updateNav()
+{
+  const uint64_t nv = bridge_->nav_version.load();
+  if (nv != seen_nav_) {
+    seen_nav_ = nv;
+    NavData n;
+    {
+      std::lock_guard<std::mutex> lk(bridge_->nav_mx);
+      n.cmd_vx = bridge_->nav.cmd_vx;
+      n.cmd_wz = bridge_->nav.cmd_wz;
+      n.bridge_state = bridge_->nav.bridge_state;
+      n.plan = bridge_->nav.plan;
+      n.local_plan = bridge_->nav.local_plan;
+      n.footprint = bridge_->nav.footprint;
+      local_frame_ = bridge_->nav.local_frame;
+    }
+    map2d_->setNavPaths(std::move(n.plan), std::move(n.local_plan));
+    map2d_->setFootprint(std::move(n.footprint), bridge_->fixed_footprint);
+    map2d_->setCmdVel(n.cmd_vx, n.cmd_wz);
+    nav_cmd_->setText(QString("vx %1  wz %2").arg(n.cmd_vx, 0, 'f', 2).arg(n.cmd_wz, 0, 'f', 2));
+
+    const QString st = QString::fromStdString(n.bridge_state);
+    sc_mode_ = st.startsWith("SC:");
+    QString col = "#64748b";  // IDLE y desconocido: gris
+    if (st.startsWith("STOP")) {col = "#ef4444";}
+    else if (st == "MOVING" || st == "SC:RUN") {col = "#22c55e";}
+    else if (st == "ACTIVE" || st == "SC:APROBADA") {col = "#f59e0b";}
+    nav_state_->setText(st.isEmpty() ? "sin puente" : st);
+    nav_state_->setStyleSheet(QString("color:%1; font-weight:700;").arg(col));
+    nav_sc_->setVisible(sc_mode_);
+  }
+  // Costmaps: solo se reconvierten a imagen cuando llegan (versión propia por cada uno)
+  static uint64_t last_cm_global = ~0ull;
+  const uint64_t g_cnt = bridge_->stats[4].count.load(), l_cnt = bridge_->stats[5].count.load();
+  static uint64_t last_cm_local = ~0ull;
+  if (g_cnt != last_cm_global) {
+    last_cm_global = g_cnt;
+    std::lock_guard<std::mutex> lk(bridge_->nav_mx);
+    map2d_->setGlobalCostmap(bridge_->nav.global_cm);
+  }
+  if (l_cnt != last_cm_local) {
+    last_cm_local = l_cnt;
+    std::lock_guard<std::mutex> lk(bridge_->nav_mx);
+    map2d_->setLocalCostmap(bridge_->nav.local_cm, bridge_->lookupMapFrom(bridge_->nav.local_frame));
+  } else if (!local_frame_.empty()) {
+    map2d_->setLocalTf(bridge_->lookupMapFrom(local_frame_));  // el mapa se corrige: el costmap local sigue a la TF
+  }
+  nav_real_->setText(QString("vx %1  wz %2").arg(bridge_->real_vx.load(), 0, 'f', 2).arg(bridge_->real_wz.load(), 0, 'f', 2));
+}
+
+void MainWindow::updateApproval()
+{
+  const uint64_t av = bridge_->appr_version.load();
+  if (av == seen_appr_) {return;}
+  seen_appr_ = av;
+  ApprovalData a;
+  {
+    std::lock_guard<std::mutex> lk(bridge_->appr_mx);
+    a = bridge_->appr;
+  }
+  btn_approve_->setEnabled(a.waiting);
+  if (a.waiting) {
+    nav_route_->setText(QString("Ruta nueva: %1 puntos, %2 m").arg(a.n).arg(a.length, 0, 'f', 2));
+  } else if (!a.approved.empty()) {
+    nav_route_->setText("Ruta aprobada");
+  } else if (a.pending) {
+    nav_route_->setText("Meta enviada, esperando ruta…");
+  } else {
+    nav_route_->setText("Sin meta");
+  }
+}
+
+void MainWindow::onDeadman()
+{
+  if (chk_deadman_->isChecked() && !sc_mode_) {bridge_->publishDeadman();}
+}
+
+QWidget * MainWindow::buildNavCard()
+{
+  auto * c = new QWidget;
+  c->setObjectName("card");
+  auto * v = new QVBoxLayout(c);
+  v->setContentsMargins(12, 10, 12, 12);
+  v->setSpacing(6);
+  v->addWidget(label("NAVEGACIÓN", "sideTitle"));
+  auto * g = new QGridLayout;
+  g->setHorizontalSpacing(8);
+  g->addWidget(label("Puente", "statLabel"), 0, 0);
+  nav_state_ = label("sin puente", "statValue");
+  g->addWidget(nav_state_, 0, 1, Qt::AlignRight);
+  g->addWidget(label("Comandada (/cmd_vel)", "statLabel"), 1, 0);
+  nav_cmd_ = label("—", "topicHz");
+  g->addWidget(nav_cmd_, 1, 1, Qt::AlignRight);
+  g->addWidget(label("Real (odometría)", "statLabel"), 2, 0);
+  nav_real_ = label("—", "topicHz");
+  g->addWidget(nav_real_, 2, 1, Qt::AlignRight);
+  v->addLayout(g);
+  nav_route_ = label("Sin meta", "topicName");
+  nav_route_->setWordWrap(true);
+  v->addWidget(nav_route_);
+  btn_approve_ = new QPushButton("Aprobar ruta");
+  btn_approve_->setObjectName("primary");
+  btn_approve_->setCursor(Qt::PointingHandCursor);
+  btn_approve_->setEnabled(false);
+  connect(btn_approve_, &QPushButton::clicked, this, [this] {
+      bridge_->approve();
+      toast(sc_mode_ ? "Aprobada: desconecta el cable, espera 10 s y presiona R2+X." : "Ruta aprobada", "ok");
+      seen_appr_ = ~0ull;
+      updateApproval();
+    });
+  v->addWidget(btn_approve_);
+  chk_deadman_ = new QCheckBox("Hombre muerto (modo con cable)");
+  chk_deadman_->setChecked(true);
+  chk_deadman_->setToolTip("Publica /laika/deadman a 5 Hz desde la UI. Cerrar o congelar el dashboard detiene el robot.");
+  v->addWidget(chk_deadman_);
+  nav_sc_ = label("SIN CABLE: cerrar el dashboard NO detiene el robot; usa L2+Y", "toast");
+  nav_sc_->setProperty("kind", "err");
+  nav_sc_->setWordWrap(true);
+  nav_sc_->hide();
+  v->addWidget(nav_sc_);
+  return c;
+}
+
+QWidget * MainWindow::buildLayersCard()
+{
+  auto * c = new QWidget;
+  c->setObjectName("card");
+  auto * v = new QVBoxLayout(c);
+  v->setContentsMargins(12, 10, 12, 12);
+  v->setSpacing(4);
+  v->addWidget(label("CAPAS 2D", "sideTitle"));
+  const struct {Map2DView::Layer l; const char * name; bool on;} defs[] = {
+    {Map2DView::kGlobalCm, "Costmap global", false}, {Map2DView::kLocalCm, "Costmap local", true},
+    {Map2DView::kPlan, "Ruta global (/plan)", true}, {Map2DView::kLocalPlan, "Ruta local (/local_plan)", true},
+    {Map2DView::kFootprint, "Huella", true}, {Map2DView::kCmdVel, "Flecha de /cmd_vel", true}};
+  for (const auto & d : defs) {
+    auto * k = new QCheckBox(d.name);
+    k->setChecked(d.on);
+    map2d_->setLayer(d.l, d.on);
+    connect(k, &QCheckBox::toggled, this, [this, l = d.l](bool on) {map2d_->setLayer(l, on);});
+    v->addWidget(k);
+  }
+  return c;
 }
 
 void MainWindow::onSecond()
@@ -403,7 +585,7 @@ void MainWindow::onSecond()
   // Frecuencia de cada topic
   const double dt = std::max(0.001, hz_clock_.restart() / 1000.0);
   const int64_t now = std::chrono::steady_clock::now().time_since_epoch().count();
-  for (int i = 0; i < 4; ++i) {
+  for (size_t i = 0; i < RosBridge::kStats; ++i) {
     const uint64_t c = bridge_->stats[i].count.load();
     const double hz = (c - last_count_[i]) / dt;
     last_count_[i] = c;
@@ -411,7 +593,7 @@ void MainWindow::onSecond()
     const double age = last ? (now - last) / 1e9 : 1e9;
     QString color = "#475569";  // nunca recibido
     if (last && age < 3.0) {color = "#22c55e";} else if (last) {color = "#f59e0b";}
-    if (i == 3 && !last) {color = "#334155";}  // objetos: opcional
+    if ((i == 3 || i >= 4) && !last) {color = "#334155";}  // objetos y navegación: opcionales
     topic_dot_[i]->setStyleSheet("color:" + color + "; font-size:11px;");
     topic_hz_[i]->setText(!last ? "sin datos" : (age < 3.0 ? QString("%1 Hz").arg(hz, 0, 'f', 1)
                                                            : QString("hace %1 s").arg(int(age))));
@@ -587,4 +769,44 @@ void MainWindow::closeEvent(QCloseEvent * e)
     return;
   }
   e->accept();
+}
+
+// ---------------------------------------------------------------------------
+// Prueba automática: eventos de ratón reales sobre Map2DView + capturas de la ventana
+// ---------------------------------------------------------------------------
+void MainWindow::runSelfTest(const QString & dir)
+{
+  QDir().mkpath(dir);
+  auto shot = [this, dir](const QString & n) {grab().save(QDir(dir).filePath(n + ".png"));};
+  // Arrastre con la herramienta activa: (x,y) mundo -> pantalla; mantiene la flecha para la captura
+  auto drag = [this](double x, double y, double x2, double y2, const QString & shot_name, const QString & dir_) {
+      const QPointF a = map2d_->screenAt(x, y), b = map2d_->screenAt(x2, y2);
+      QMouseEvent press(QEvent::MouseButtonPress, a, Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+      QApplication::sendEvent(map2d_, &press);
+      QMouseEvent move(QEvent::MouseMove, b, Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+      QApplication::sendEvent(map2d_, &move);
+      map2d_->grab().save(QDir(dir_).filePath(shot_name + ".png"));
+      QMouseEvent rel(QEvent::MouseButtonRelease, b, Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+      QApplication::sendEvent(map2d_, &rel);
+    };
+  const QString goal_env = qEnvironmentVariable("DASHBOARD_SELFTEST_GOAL", "1.0,0.0,1.0,0.6");  // x,y,x2,y2 en map
+  const auto g = goal_env.split(',');
+  const double gx = g[0].toDouble(), gy = g[1].toDouble(), gx2 = g[2].toDouble(), gy2 = g[3].toDouble();
+
+  QTimer::singleShot(4000, this, [=] {
+      shot("01_inicio");
+      btn_goal_->click();
+      drag(gx, gy, gx2, gy2, "02_arrastrando_meta", dir);
+  });
+  QTimer::singleShot(7000, this, [=] {shot("03_meta_ruta");});
+  QTimer::singleShot(8000, this, [=] {
+      if (btn_approve_->isEnabled()) {btn_approve_->click();}
+      else {qWarning("SELFTEST: el boton Aprobar no se habilito");}
+  });
+  QTimer::singleShot(10000, this, [=] {
+      shot("04_aprobada");
+      btn_init_->click();
+      drag(0.0, 0.0, 0.5, 0.0, "05_arrastrando_pose", dir);
+  });
+  QTimer::singleShot(12000, this, [=] {shot("06_final"); QApplication::quit();});
 }

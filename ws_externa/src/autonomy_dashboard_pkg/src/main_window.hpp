@@ -13,6 +13,7 @@
 
 #include "ros_bridge.hpp"
 
+class QCheckBox;
 class QLabel;
 class QProgressBar;
 class QPushButton;
@@ -25,6 +26,8 @@ class MainWindow : public QMainWindow {
 
 public:
   explicit MainWindow(std::shared_ptr<RosBridge> bridge);
+  // Prueba automática (DASHBOARD_SELFTEST=<carpeta>): simula clics, guarda capturas y cierra
+  void runSelfTest(const QString & dir);
 
 protected:
   void closeEvent(QCloseEvent * e) override;
@@ -35,6 +38,7 @@ private slots:
   void onPrimary();    // START / PAUSE / RESUME
   void onReset();
   void onExportDone();
+  void onDeadman();    // 5 Hz, desde el hilo de la UI: si la UI se congela, el robot se corta
 
 private:
   enum class Mission { Idle, Mapping, Paused };
@@ -42,6 +46,10 @@ private:
   QWidget * buildHeader();
   QWidget * buildCard(const QString & title, const QString & hint, QWidget * view, QList<QPushButton *> tools);
   QWidget * buildSidebar();
+  QWidget * buildNavCard();
+  QWidget * buildLayersCard();
+  void updateNav();
+  void updateApproval();
   QWidget * statBox(const QString & label, QLabel ** value);
   void setMission(Mission m);
   int elapsedSeconds() const;
@@ -62,7 +70,7 @@ private:
   QList<QPushButton *> export_btns_;
   QLabel * st_pose_ = nullptr, * st_area_ = nullptr, * st_map_ = nullptr;
   QLabel * st_scan_ = nullptr, * st_grid_ = nullptr, * st_obj_ = nullptr;
-  std::array<QLabel *, 4> topic_dot_{}, topic_hz_{};
+  std::array<QLabel *, RosBridge::kStats> topic_dot_{}, topic_hz_{};
   QLabel * tf_dot_ = nullptr, * tf_text_ = nullptr;
   QLabel * toast_ = nullptr;
   QTimer * toast_timer_ = nullptr;
@@ -75,12 +83,20 @@ private:
   bool auto_done_ = false;
 
   // Frecuencias
-  std::array<uint64_t, 4> last_count_{};
+  std::array<uint64_t, RosBridge::kStats> last_count_{};
   QElapsedTimer hz_clock_;
 
   // Exportación en segundo plano
   QFutureWatcher<QStringList> export_watcher_;
   bool exporting_ = false;
 
-  uint64_t seen_grid_ = ~0ull, seen_pose_ = ~0ull;
+  uint64_t seen_grid_ = ~0ull, seen_pose_ = ~0ull, seen_nav_ = ~0ull, seen_appr_ = ~0ull;
+
+  // Navegación
+  QPushButton * btn_goal_ = nullptr, * btn_init_ = nullptr, * btn_approve_ = nullptr;
+  QCheckBox * chk_deadman_ = nullptr;
+  QLabel * nav_state_ = nullptr, * nav_cmd_ = nullptr, * nav_real_ = nullptr;
+  QLabel * nav_route_ = nullptr, * nav_sc_ = nullptr;
+  bool sc_mode_ = false;
+  std::string local_frame_;
 };
