@@ -109,7 +109,13 @@ panel() {  # panel <título> <comando>
 tmux select-pane -t "$P_BASE" -T base
 panel puente "$CMD_PUENTE; read -p 'puente terminó. Enter para cerrar'" > /dev/null
 panel nav "$CMD_NAV; read -p 'nav terminó. Enter para cerrar'" > /dev/null
-P_APR=$(panel aprobar "$CMD_APR; read -p 'aprobar terminó. Enter para cerrar'")
+# Desde el dashboard (--sin-attach) no hay panel aprobar: el dashboard aprueba y es el ÚNICO hombre muerto
+# (si aprobar_rutas.py corriera detrás, cerrar el dashboard no detendría el robot).
+if [ $ATTACH = 1 ]; then
+  P_APR=$(panel aprobar "$CMD_APR; read -p 'aprobar terminó. Enter para cerrar'")
+else
+  P_APR=$P_BASE
+fi
 if [ "$BASE" = mapping.launch.py ]; then  # con SLAM el mapa nace donde está el robot: no hay pose inicial
   panel pose "$ENV_E && python3 $D/ver_pose.py" > /dev/null
 elif [ $MARCA_OK = 0 ]; then  # otro mapa: la pose inicial la pone el usuario (herramienta "Pose inicial")
