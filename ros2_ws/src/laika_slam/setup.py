@@ -23,6 +23,7 @@ setup(
     entry_points={'console_scripts': [
         'odom_to_tf = laika_slam.odom_to_tf:main',
         'cmd_vel_to_sport = laika_slam.cmd_vel_to_sport:main',
+        'joint_states = laika_slam.joint_states:main',
         'l1_to_body = laika_slam.l1_to_body:main',
         'map3d_accumulator = laika_slam.map3d_accumulator:main',
     ]},

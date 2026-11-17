@@ -5,6 +5,8 @@
 #   scripts/laika_fase4.sh --prueba  dry-run: el puente publica en /laika/sport_request_dry y se activa solo
 #   scripts/laika_fase4.sh --slam    en vez del mapa guardado, hace el mapa en vivo (slam_toolbox) y navega sobre él
 #   scripts/laika_fase4.sh --sin-cable  MODO SIN CABLE (combinable con --slam y --prueba), ver abajo
+#   --mapa <ruta .yaml>  localiza sobre ese mapa (copia .pgm+.yaml al robot, ~/laika_maps/); si no es fase2_cuarto1 no hay pose de la marca
+#   --sin-attach  no hace tmux attach al final (lo usa el dashboard);  --sin-rviz  sin ventana de RViz
 #   scripts/laika_fase4_parar.sh     detiene todo en orden
 #
 # Al inicio solo corren: localización (mapa + AMCL), el puente en IDLE (no manda nada), RViz y la ventana de pose.
@@ -27,18 +29,24 @@ ENV_E="source $D/env_external.sh && export PYTHONUNBUFFERED=1"
 # Pose de la marca de inicio (la de la caminata de la fase 2); si el robot está en otro lugar, corrígela en RViz.
 MARCA='{header: {frame_id: map}, pose: {pose: {position: {x: 0.034, y: 0.027}, orientation: {z: -0.118, w: 0.993}}, covariance: [0.06,0,0,0,0,0, 0,0.06,0,0,0,0, 0,0,0,0,0,0, 0,0,0,0,0,0, 0,0,0,0,0,0, 0,0,0,0,0,0.07]}}'
 
+ATTACH=1; RVIZ=1; MAPA_LOCAL=''; MAPA_ARG=''; MARCA_OK=1
 SALIDA=/api/sport/request; EXTRA=''; MODO='ARMADO'
 BASE=localization.launch.py; MAPA='mapa guardado (AMCL)'; NAVARGS=''; SINCABLE=0
-for a in "$@"; do
+while [ $# -gt 0 ]; do
+  a=$1; shift
   case $a in
+    --sin-attach) ATTACH=0 ;;
+    --sin-rviz) RVIZ=0 ;;
+    --mapa) MAPA_LOCAL=${1:?--mapa necesita la ruta de un .yaml}; shift ;;
     --prueba) SALIDA=/laika/sport_request_dry; EXTRA='-p dry_run_force_active:=true'; MODO='PRUEBA (dry-run)' ;;
     --sin-cable) SINCABLE=1 ;;
     --slam) BASE=mapping.launch.py; MAPA='mapa en vivo (slam_toolbox)'
             NAVARGS='planner_yaml:=/home/unitree/laika_ws/install/laika_slam/share/laika_slam/config/planner_slam.yaml' ;;
-    *) echo "Opción desconocida: $a (usa --prueba, --slam y/o --sin-cable)"; exit 1 ;;
+    *) echo "Opción desconocida: $a (usa --prueba, --slam, --sin-cable, --mapa <yaml>, --sin-attach, --sin-rviz)"; exit 1 ;;
   esac
 done
 
+[ -n "$MAPA_LOCAL" ] && [ $BASE = mapping.launch.py ] && { echo "--mapa y --slam son excluyentes."; exit 1; }
 tmux has-session -t $S 2>/dev/null && { echo "Ya existe la sesión $S. Entra con: tmux attach -t $S (o párala con scripts/laika_fase4_parar.sh)"; exit 1; }
 ssh -o ConnectTimeout=5 $ROBOT true || { echo "No hay SSH al robot ($ROBOT)."; exit 1; }
 # Regla de chrony: no lanzar si el robot no está sincronizado con la externa.
@@ -46,11 +54,23 @@ ssh $ROBOT 'chronyc tracking' | grep -q 'Reference ID.*192.168.123.50' || { echo
 ssh $ROBOT 'tmux has-session -t laika4r 2>/dev/null' && { echo "Ya existe la sesión laika4r en el robot (¿modo sin cable en marcha?). Párala con scripts/laika_fase4_parar.sh"; exit 1; }
 ssh $ROBOT 'tmux ls 2>/dev/null' | grep -q . && { echo "Hay sesiones tmux en el robot; ciérralas antes (ssh $ROBOT tmux ls)."; exit 1; }
 
+# Mapa elegido: copiar .pgm+.yaml al robot; AMCL arranca con ese yaml. Pose de la marca solo con fase2_cuarto1.
+if [ -n "$MAPA_LOCAL" ]; then
+  [ -f "$MAPA_LOCAL" ] || { echo "No existe $MAPA_LOCAL"; exit 1; }
+  IMG=$(sed -n 's/^image: *//p' "$MAPA_LOCAL" | tr -d "\"' \r"); IMG=${IMG:?el yaml no tiene image:}
+  [ -f "$(dirname "$MAPA_LOCAL")/$IMG" ] || { echo "Falta la imagen $IMG junto a $MAPA_LOCAL"; exit 1; }
+  ssh $ROBOT 'mkdir -p ~/laika_maps'
+  scp -q "$MAPA_LOCAL" "$(dirname "$MAPA_LOCAL")/$IMG" $ROBOT:laika_maps/ || { echo "Falló scp del mapa."; exit 1; }
+  MAPA_REMOTO="/home/unitree/laika_maps/$(basename "$MAPA_LOCAL")"
+  MAPA_ARG="map:=$MAPA_REMOTO"; MAPA="mapa cargado $(basename "$MAPA_LOCAL")"
+  [ "$(basename "$MAPA_LOCAL" .yaml)" = fase2_cuarto1 ] || MARCA_OK=0
+fi
+
 # Espera a que el puente pase a ACTIVE (R2+X). En el robot (Foxy) y aquí (Humble).
 ESPERA="until ros2 topic echo /laika/bridge_state 2>/dev/null | grep -m1 -q ACTIVE; do sleep 1; done"
 
 ARGS_PUENTE="-r sport_request_out:=$SALIDA $EXTRA"
-CMD_BASE="$ENV_R && ros2 launch laika_slam $BASE"
+CMD_BASE="$ENV_R && ros2 launch laika_slam $BASE $MAPA_ARG"
 CMD_NAV="$ENV_R && echo 'Esperando R2+X para arrancar Nav2...' && $ESPERA && ros2 launch laika_slam nav2_servers.launch.py $NAVARGS"
 CMD_APR="$ENV_E && echo 'Esperando R2+X...' && $ESPERA && echo 'Activo: este panel es el hombre muerto (Ctrl-C = parar).' && python3 $D/aprobar_rutas.py"
 if [ $SINCABLE = 1 ]; then
@@ -92,10 +112,12 @@ panel nav "$CMD_NAV; read -p 'nav terminó. Enter para cerrar'" > /dev/null
 P_APR=$(panel aprobar "$CMD_APR; read -p 'aprobar terminó. Enter para cerrar'")
 if [ "$BASE" = mapping.launch.py ]; then  # con SLAM el mapa nace donde está el robot: no hay pose inicial
   panel pose "$ENV_E && python3 $D/ver_pose.py" > /dev/null
+elif [ $MARCA_OK = 0 ]; then  # otro mapa: la pose inicial la pone el usuario (herramienta "Pose inicial")
+  panel pose "$ENV_E && python3 $D/ver_pose.py" > /dev/null
 else
   panel pose "$ENV_E && sleep 20 && ros2 topic pub -t 3 -w 1 /initialpose geometry_msgs/msg/PoseWithCovarianceStamped \"$MARCA\" > /dev/null && echo 'Pose inicial en la marca publicada.' ; python3 $D/ver_pose.py" > /dev/null
 fi
-panel rviz "$D/rviz_fase4.sh" > /dev/null
+[ $RVIZ = 1 ] && panel rviz "$D/rviz_fase4.sh" > /dev/null
 tmux set-option -t $S pane-border-status top > /dev/null
 tmux set-option -t $S pane-border-format ' #{pane_title} ' > /dev/null
 tmux set-option -t $S mouse on > /dev/null  # clic para elegir panel
@@ -104,4 +126,5 @@ echo "Sesión $S lista: $MODO, $MAPA. Presiona R2+X para arrancar la navegación
 [ "$BASE" = mapping.launch.py ] && echo "Para guardar el mapa: scripts/guardar_mapa.sh <nombre> (antes de cerrar)"
 if [ $SINCABLE = 1 ]; then echo "SIN CABLE: cerrar esta tmux NO detiene el robot. Para parar: L2+Y o scripts/laika_fase4_parar.sh"
 else echo "Para cerrar todo: tmux kill-session -t $S   (o scripts/laika_fase4_parar.sh)"; fi
+[ $ATTACH = 0 ] && exit 0
 [ -n "$TMUX" ] && tmux switch-client -t $S || tmux attach -t $S
