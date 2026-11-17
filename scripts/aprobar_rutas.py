@@ -89,7 +89,8 @@ class Aprobar(Node):
             self.approved, self.waiting = self.key, False
             print('Aprobada: desconecta el cable, espera 10 s y presiona R2+X.' if self.state.startswith('SC:')
                   else 'Aprobada.')
-        self.appr.publish(String(data=self.approved))
+        if self.approved:  # repetir '' pisaría la aprobación del dashboard si corren los dos
+            self.appr.publish(String(data=self.approved))
         print('\rvx=%.2f wz=%.2f  puente=%-7s ' % (*self.vel, self.state), end='', flush=True)
 
 

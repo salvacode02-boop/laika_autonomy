@@ -124,14 +124,15 @@ RosBridge::RosBridge()
   init_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(t_init, 10);
   dead_pub_ = create_publisher<std_msgs::msg::Empty>(t_dead, 10);
   appr_pub_ = create_publisher<std_msgs::msg::String>(t_appr, 10);
-  // Aprobación periódica a 5 Hz, como aprobar_rutas.py (vacía = sin aprobación)
+  // Repite a 5 Hz solo una aprobación real: si repitiera '' pisaría la de aprobar_rutas.py corriendo a la vez
+  // (en modo con cable el puente alternaría entre aprobado y no aprobado). '' se publica una vez por meta nueva.
   appr_timer_ = create_wall_timer(std::chrono::milliseconds(200), [this] {
       std_msgs::msg::String s;
       {
         std::lock_guard<std::mutex> lk(appr_mx);
         s.data = appr.approved;
       }
-      appr_pub_->publish(s);
+      if (!s.data.empty()) {appr_pub_->publish(s);}
     });
 
   status_pub_ = create_publisher<std_msgs::msg::String>("/autonomy/status", 10);
