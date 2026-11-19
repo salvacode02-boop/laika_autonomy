@@ -272,6 +272,14 @@ QWidget * MainWindow::buildSidebar()
   btn_reset_->setCursor(Qt::PointingHandCursor);
   connect(btn_reset_, &QPushButton::clicked, this, &MainWindow::onReset);
   mv->addWidget(btn_reset_);
+  btn_trail_ = new QPushButton("Borrar trayectoria");
+  btn_trail_->setCursor(Qt::PointingHandCursor);
+  connect(btn_trail_, &QPushButton::clicked, this, &MainWindow::onClearTrail);
+  mv->addWidget(btn_trail_);
+  btn_costmaps_ = new QPushButton("Limpiar costmaps");
+  btn_costmaps_->setCursor(Qt::PointingHandCursor);
+  connect(btn_costmaps_, &QPushButton::clicked, this, &MainWindow::onClearCostmaps);
+  mv->addWidget(btn_costmaps_);
   v->addWidget(mcard);
 
   // --- Datos
@@ -466,6 +474,10 @@ void MainWindow::updateNav()
     nav_state_->setText(st.isEmpty() ? "sin puente" : st);
     nav_state_->setStyleSheet(QString("color:%1; font-weight:700;").arg(col));
     nav_sc_->setVisible(sc_mode_);
+    // Limpiar costmaps borra obstáculos hasta el siguiente scan: solo con el puente quieto.
+    const bool moving = st.contains("ACTIVE") || st.contains("RUN");
+    btn_costmaps_->setEnabled(!moving);
+    btn_costmaps_->setToolTip(moving ? "Deshabilitado mientras el puente se mueve (ACTIVE/RUN)" : "");
   }
   // Costmaps: solo se reconvierten a imagen cuando llegan (versión propia por cada uno)
   static uint64_t last_cm_global = ~0ull;
@@ -918,6 +930,35 @@ void MainWindow::onReset()
   onSecond();
   cloud3d_->update();
   toast("Misión reiniciada", "info");
+}
+
+void MainWindow::onClearTrail()
+{
+  bridge_->clearTrail();
+  onSecond();
+  toast("Trayectoria borrada", "info");
+}
+
+void MainWindow::onClearCostmaps()
+{
+  QString st;
+  {
+    std::lock_guard<std::mutex> lk(bridge_->nav_mx);
+    st = QString::fromStdString(bridge_->nav.bridge_state);
+  }
+  if (st.contains("ACTIVE") || st.contains("RUN")) {
+    toast("No se limpian costmaps con el puente en movimiento", "warn");
+    return;
+  }
+  std::shared_ptr<std::atomic<int>> answered;
+  const int ready = bridge_->clearCostmaps(answered);
+  if (ready == 0) {toast("Costmaps: sin respuesta (servicios no disponibles)", "warn"); return;}
+  QTimer::singleShot(2000, this, [this, answered, ready] {
+      const int n = answered->load();
+      if (n == 0) {toast("Costmaps: sin respuesta", "err");}
+      else {toast(QString("Costmaps limpiados (%1/2)").arg(n), n == 2 ? "ok" : "warn");}
+      (void)ready;
+    });
 }
 
 // ---------------------------------------------------------------------------

@@ -162,6 +162,11 @@ RosBridge::RosBridge()
   area_pub_ = create_publisher<std_msgs::msg::Float32>("/autonomy/mapped_area_percent", 10);
   octomap_reset_ = create_client<std_srvs::srv::Empty>("/octomap_server/reset");
 
+  clear_global_ = create_client<nav2_msgs::srv::ClearEntireCostmap>(
+    "/global_costmap/clear_entirely_global_costmap");
+  clear_local_ = create_client<nav2_msgs::srv::ClearEntireCostmap>(
+    "/local_costmap/clear_entirely_local_costmap");
+
   status_timer_ = create_wall_timer(std::chrono::seconds(1), [this] {publishStatus();});
 
   RCLCPP_INFO(get_logger(), "Dashboard listo | team=%s mission=%s | cloud=%s grid=%s odom=%s",
@@ -431,6 +436,29 @@ void RosBridge::requestOctomapReset()
   if (octomap_reset_->service_is_ready()) {
     octomap_reset_->async_send_request(std::make_shared<std_srvs::srv::Empty::Request>());
   }
+}
+
+void RosBridge::clearTrail()
+{
+  {
+    std::lock_guard<std::mutex> lk(pose_mx);
+    path.clear();
+  }
+  pose_version++;
+}
+
+int RosBridge::clearCostmaps(std::shared_ptr<std::atomic<int>> & answered)
+{
+  answered = std::make_shared<std::atomic<int>>(0);
+  int ready = 0;
+  for (auto & c : {clear_global_, clear_local_}) {
+    if (!c->service_is_ready()) {continue;}
+    ++ready;
+    auto cnt = answered;  // copia: el callback puede correr después de que el llamador termine
+    c->async_send_request(std::make_shared<nav2_msgs::srv::ClearEntireCostmap::Request>(),
+      [cnt](rclcpp::Client<nav2_msgs::srv::ClearEntireCostmap>::SharedFuture) {++(*cnt);});
+  }
+  return ready;
 }
 
 // ---------------------------------------------------------------------------

@@ -25,6 +25,7 @@
 #include <std_msgs/msg/float32.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_srvs/srv/empty.hpp>
+#include <nav2_msgs/srv/clear_entire_costmap.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 
@@ -159,6 +160,10 @@ public:
 
   void clearMission();
   void requestOctomapReset();
+  void clearTrail();
+  // Pide limpiar global y local costmap sin bloquear. Devuelve cuántos servicios estaban listos;
+  // `answered` sube conforme responden (el llamador lo revisa más tarde).
+  int clearCostmaps(std::shared_ptr<std::atomic<int>> & answered);
 
 private:
   void cloudCb(const sensor_msgs::msg::PointCloud2::ConstSharedPtr msg);
@@ -208,5 +213,6 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr area_pub_;
   rclcpp::Client<std_srvs::srv::Empty>::SharedPtr octomap_reset_;
+  rclcpp::Client<nav2_msgs::srv::ClearEntireCostmap>::SharedPtr clear_global_, clear_local_;
   rclcpp::TimerBase::SharedPtr status_timer_;
 };
