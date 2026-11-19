@@ -272,6 +272,20 @@ QWidget * MainWindow::buildSidebar()
   btn_reset_->setCursor(Qt::PointingHandCursor);
   connect(btn_reset_, &QPushButton::clicked, this, &MainWindow::onReset);
   mv->addWidget(btn_reset_);
+  btn_trail_ = new QPushButton("Borrar trayectoria");
+  btn_trail_->setCursor(Qt::PointingHandCursor);
+  connect(btn_trail_, &QPushButton::clicked, this, &MainWindow::onClearTrail);
+  mv->addWidget(btn_trail_);
+  btn_costmaps_ = new QPushButton("Limpiar costmaps");
+  btn_costmaps_->setCursor(Qt::PointingHandCursor);
+  connect(btn_costmaps_, &QPushButton::clicked, this, &MainWindow::onClearCostmaps);
+  mv->addWidget(btn_costmaps_);
+  btn_session_ = new QPushButton("Reiniciar sesión");
+  btn_session_->setObjectName("danger");
+  btn_session_->setCursor(Qt::PointingHandCursor);
+  btn_session_->setEnabled(false);
+  connect(btn_session_, &QPushButton::clicked, this, &MainWindow::onResetSession);
+  mv->addWidget(btn_session_);
   v->addWidget(mcard);
 
   // --- Datos
@@ -466,6 +480,13 @@ void MainWindow::updateNav()
     nav_state_->setText(st.isEmpty() ? "sin puente" : st);
     nav_state_->setStyleSheet(QString("color:%1; font-weight:700;").arg(col));
     nav_sc_->setVisible(sc_mode_);
+    // Limpiar costmaps borra obstáculos hasta el siguiente scan: solo con el puente quieto.
+    const bool moving = st.contains("ACTIVE") || st.contains("RUN");
+    btn_costmaps_->setEnabled(!moving);
+    btn_costmaps_->setToolTip(moving ? "Deshabilitado mientras el puente se mueve (ACTIVE/RUN)" : "");
+    const bool idle = st == "IDLE" || st == "SC:IDLE";  // reiniciar la sesión solo con el puente en IDLE
+    if (!session_busy_) {btn_session_->setEnabled(idle);}
+    btn_session_->setToolTip(idle ? "" : "Solo con el puente en IDLE (pulsa L2+Y)");
   }
   // Costmaps: solo se reconvierten a imagen cuando llegan (versión propia por cada uno)
   static uint64_t last_cm_global = ~0ull;
@@ -918,6 +939,72 @@ void MainWindow::onReset()
   onSecond();
   cloud3d_->update();
   toast("Misión reiniciada", "info");
+}
+
+void MainWindow::onClearTrail()
+{
+  bridge_->clearTrail();
+  onSecond();
+  toast("Trayectoria borrada", "info");
+}
+
+void MainWindow::onResetSession()
+{
+  const auto r = QMessageBox::question(this, "Reiniciar sesión",
+    "¿Reiniciar la sesión?\nSe guarda el mapa actual como autosave, se reinicia slam_toolbox y la odometría "
+    "(el mapa y la posición empiezan de cero) y se borran metas, plan y aprobación.\n"
+    "El robot debe estar quieto.");
+  if (r != QMessageBox::Yes) {return;}
+  auto res = bridge_->requestResetSession();
+  if (!res) {toast("Reiniciar sesión: /laika/reset_session no disponible", "err"); return;}
+  session_busy_ = true;
+  btn_session_->setEnabled(false);
+  toast("Reiniciando sesión...", "info");
+  auto * t = new QTimer(this);
+  auto * waited = new int(0);
+  connect(t, &QTimer::timeout, this, [this, t, res, waited] {
+      *waited += 250;
+      const bool timeout = *waited >= 15000;
+      if (!res->done.load() && !timeout) {return;}
+      t->stop();
+      t->deleteLater();
+      delete waited;
+      session_busy_ = false;
+      if (!res->done.load()) {
+        QMessageBox::warning(this, "Reiniciar sesión", "Sin respuesta en 15 s.");
+        return;
+      }
+      const QString txt = QString::fromStdString(res->msg);
+      if (res->ok) {toast("Sesión reiniciada", "ok");}
+      QMessageBox box(res->ok ? QMessageBox::Information : QMessageBox::Warning, "Reiniciar sesión",
+        res->ok ? "Sesión reiniciada." : "Falló el reinicio de sesión.", QMessageBox::Ok, this);
+      box.setDetailedText(txt);
+      box.setInformativeText(txt);
+      box.exec();
+    });
+  t->start(250);
+}
+
+void MainWindow::onClearCostmaps()
+{
+  QString st;
+  {
+    std::lock_guard<std::mutex> lk(bridge_->nav_mx);
+    st = QString::fromStdString(bridge_->nav.bridge_state);
+  }
+  if (st.contains("ACTIVE") || st.contains("RUN")) {
+    toast("No se limpian costmaps con el puente en movimiento", "warn");
+    return;
+  }
+  std::shared_ptr<std::atomic<int>> answered;
+  const int ready = bridge_->clearCostmaps(answered);
+  if (ready == 0) {toast("Costmaps: sin respuesta (servicios no disponibles)", "warn"); return;}
+  QTimer::singleShot(2000, this, [this, answered, ready] {
+      const int n = answered->load();
+      if (n == 0) {toast("Costmaps: sin respuesta", "err");}
+      else {toast(QString("Costmaps limpiados (%1/2)").arg(n), n == 2 ? "ok" : "warn");}
+      (void)ready;
+    });
 }
 
 // ---------------------------------------------------------------------------

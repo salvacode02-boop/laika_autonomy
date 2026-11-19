@@ -269,3 +269,82 @@ Puente armado, sin Nav2. Las órdenes las genera `scripts/prueba_movimiento.py`.
 - Campo "Velocidad de ruta" junto a "Aprobar ruta" (0.25–0.50 m/s, por defecto 0.30). El dashboard lo publica en `/laika/vel_ruta` a 5 Hz. El puente escala la salida de Nav2 (tope 0.3) a ese valor y lo acota a [0.25, 0.5] (`VX_HARD`), sin bajar del mínimo de marcha.
 - Dry-run: con 0.45, Move `x=0.450`. El usuario lo probó armado y confirmó que funciona bien.
 - Pendiente: medir qué ve el robot con el control apagado (sin cable el control es el único freno).
+
+## 2026-11-19: terreno complejo, lote 1 aprobado
+
+- El usuario aprobó el plan `docs/plan-terreno-complejo.md` y el lote 1 del asesor (`docs/plan-terreno-lote1.md`, B1-B6). Ninguno de esos pasos hace caminar al robot.
+- Compilar FAST_LIO_ROS2 y un `livox_ros_driver2` de solo mensajes en el `~/laika_ws` del robot, sin sudo y con el robot quieto.
+- Aceptado para lotes siguientes:
+  - `odom_to_tf` recibe `publish_tf` (true por defecto) y `/laika/reset_odom`, con el comportamiento por defecto igual.
+  - Un hook en el puente olvida la meta y la aprobación en caché al resetear. Lleva prueba unitaria.
+  - El monitor de salud solo muestra un banner; no para nada por su cuenta.
+  - Opción A del IMU primero. Height map como PointCloud2.
+  - Pospuestos: escaleras, reset desde el control, mapa de terreno persistente.
+
+## 2026-11-19: terreno lote 1, avance
+
+- R1 cerrado: los botones del dashboard compilan. En dry-run (`--prueba --slam`), `ClearEntireCostmap` funciona de Humble a Foxy (local y global responden). Falta la prueba visual en la GUI.
+- Bags (P5.0): la grabación de 10 s en el robot pasa con los 10 tópicos.
+- `heightmap_node` en el robot (replay de `cuarto1`):
+  - 32-56 ms por lote y CPU de 24-44 % de un núcleo.
+  - Desviación del piso: 8 cm con la métrica cruda (sin quitar el plano). Se corrige la métrica (plano + MAD) y el estimador (percentil 20).
+- IMU del L1:
+  - La hipótesis "B o Rz(π)·B" era falsa: el yaw es libre.
+  - La odometría no sirve como referencia de orientación (salta 17° en segundos).
+  - La prueba de inclinación (`tilt1`) con normales del piso del lidar no pasa la compuerta: acel 6° rms, giro 31-54°.
+  - Pista: el eje de giro del giroscopio (fase2_cuarto1) y la normal del piso en el marco del lidar difieren ~2°, así que el giroscopio ≈ marco del lidar y solo el acelerómetro difiere.
+  - Pendiente: revisar el desfase de tiempos entre nube e IMU antes del ajuste.
+
+## 2026-11-19: calibración L1 → cuerpo para FAST-LIO (opción B del IMU)
+
+- El acelerómetro del L1 no sirve: marca 13° de inclinación donde el lidar y el giroscopio marcan 0°. FAST-LIO usará el IMU del cuerpo (`/lowstate`), que llega por el relevo C++ `laika_imu_relay` → `/laika/body_imu` (500 Hz, 5-8 % de un núcleo; latencia 0 ± 10 ms medida con movimiento lento).
+- El `cloud_R` del URDF (Ry 164.9°) no corresponde al marco crudo del L1: hay ~120° de yaw de diferencia.
+- `R_body_lidar` nuevo, en `config/l1_to_body_lio.yaml`:
+  - Rotación: hand-eye de los ejes de pitch y yaw entre el giroscopio del L1 y el de `/lowstate`, más un reajuste de roll/pitch con la gravedad de `/lowstate` contra la normal del piso. Bag `tilt1`, `scripts/calib_l1_lidar.py`.
+  - Traslación: la del URDF (`radar_joint`).
+- Compuertas:
+  - Gravedad: 0.01-0.41° en las 14 mesetas.
+  - Eje de pitch: +y a 1.1°.
+  - Paredes contra `cloud_deskewed`: +4.8° de yaw y 93 % de los puntos a < 10 cm (con el `cloud_R` viejo: −121°).
+  - El piso queda al frente.
+  - Las piernas aparecen simétricas en y.
+- `self_box` rehecho en el marco nuevo. `l1_to_body.yaml` y Point-LIO quedan sin tocar.
+- Pendiente: medir la latencia con un bag de movimiento rápido. Validar el yaw en B5 (dirección de avance de LIO contra +x a ≤ 5°).
+
+## 2026-11-19: FAST_LIO_ROS2 compilado en el robot (B4)
+
+- `Ericsii/FAST_LIO_ROS2`, rama `ros2`, SHA 2fffc570 (ikd-Tree e2e3f4e9). Se trae con `scripts/traer_fast_lio.sh` y se compila en `~/laika_ws` del robot (Release, -j2, 2 min). Sin apt ni sudo.
+- `livox_ros_driver2`: paquete de solo mensajes (copiados de Livox-SDK, MIT), porque FAST-LIO incluye sus headers sin guarda.
+- `patches/fast_lio_foxy.patch`:
+  - Se quita `pcl_ros`: no está en el robot y nada lo usa.
+  - Se agrega `tf2_ros` explícito; antes llegaba a través de `pcl_ros`.
+  - PCL con el componente `filters`, que necesita `VoxelGrid`.
+  - El callback de `map_save` recibe `SharedPtr` en vez de `ConstSharedPtr`, porque Foxy no acepta la versión const.
+- B5:
+  - Cambio al parche: la suscripción del IMU usa `SensorDataQoS` (best effort, profundidad 200), porque el relevo publica best effort. Con la suscripción reliable, FAST-LIO no recibía IMU.
+  - En `tilt1` (514 s) no se cae; `/lio/odometry` a 15.4 Hz.
+  - CPU de `fastlio_mapping`: ~19 % de un núcleo, 137 MB.
+  - Sale solo bajo `/lio/*`, sin `/tf`.
+  - z estable (std 7 mm).
+  - Excursión máxima de posición: 0.41 m con el robot girando en su lugar.
+  - Yaw: LIO 62.7° contra 47.7° del giroscopio integrado en la fase de giro. La comparación es gruesa.
+  - Falta un bag caminando para medir la deriva y validar el yaw.
+- B5 en `loop1` (caminata de 299 s con joystick y regreso a la marca; verdad de terreno: 2 cm adelante, yaw ≈ 0):
+  - Error de regreso:
+    - LIO: 4.2 cm en 3D y 0.74° de yaw. **Pasa** la compuerta de 8 cm / 1.5°.
+    - Odometría de patas: 23 cm.
+  - Dirección de avance contra +x: mediana 1.3° en 3 tramos rectos (uno a −10.6°).
+  - Paredes: grosor 5.7-6.7 cm (std, banda ±10 cm). El usuario revisó `loop1_lio.pcd`: sin paredes dobles ni puntos colapsados.
+  - CPU ~16 % de un núcleo, 15.4 Hz, sin divergencia.
+
+## 2026-11-19: terreno lote 2 aprobado
+
+- El usuario aprobó `docs/plan-terreno-lote2.md` (C1-C9) y las 7 recomendaciones del asesor:
+  1. La odometría por defecto sigue siendo la de patas hasta que una regresión armada sobre LIO pase (lote 3).
+  2. `--lio` y `--odom-lio` no se combinan con `--sin-cable`.
+  3. `/laika/odom` (twist para Nav2) sigue con la de patas.
+  4. `map3d` no corre con `--odom-lio` en el lote 2.
+  5. Se corrige el TF estático `base_link → utlidar_lidar` con el `R_body_lidar` nuevo (solo lo usa RViz).
+  6. El reset solo se permite en IDLE.
+  7. "Arrancar" en el dashboard pasa `--sesion` cuando C9 pase.
+- Ningún paso arma el puente. La navegación armada sobre LIO va al lote 3, con su propia aprobación.

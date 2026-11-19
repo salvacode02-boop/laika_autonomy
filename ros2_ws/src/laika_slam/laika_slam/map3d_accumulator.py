@@ -102,6 +102,7 @@ class Map3dAccumulator(Node):
             depth=1, history=HistoryPolicy.KEEP_LAST, reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.create_service(Trigger, '/laika/map3d/save', self.save_cb)
+        self.create_service(Trigger, '~/reset', self.reset_cb)
         self.create_timer(1.0 / g('merge_rate'), self.merge_pending)
         self.create_timer(1.0 / g('publish_rate'), self.publish)
         self.create_timer(10.0, lambda: self.get_logger().info(
@@ -161,6 +162,15 @@ class Map3dAccumulator(Node):
         m.row_step = 12 * m.width
         m.data = self.valid_pts.tobytes()
         self.pub.publish(m)
+
+    def reset_cb(self, _req, res):
+        self.tf = self.prev_used = None
+        self.pending = []
+        self.gk = np.zeros(0, dtype=np.int64)
+        self.gc = np.zeros(0, dtype=np.int64)
+        self.valid_pts = np.zeros((0, 3), dtype=np.float32)
+        res.success, res.message = True, 'mapa 3D vacio'
+        return res
 
     def save(self):
         self.merge_pending()

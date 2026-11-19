@@ -23,8 +23,11 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
 #include <std_msgs/msg/float32.hpp>
+#include <std_msgs/msg/int32.hpp>
 #include <std_msgs/msg/string.hpp>
 #include <std_srvs/srv/empty.hpp>
+#include <std_srvs/srv/trigger.hpp>
+#include <nav2_msgs/srv/clear_entire_costmap.hpp>
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
 
@@ -62,6 +65,13 @@ struct NavData {
   std::vector<std::array<float, 2>> plan, local_plan, footprint;  // footprint: vacía = no hay
   double cmd_vx = 0, cmd_wz = 0;
   std::string bridge_state;
+};
+
+// Resultado de /laika/reset_session (lo llena el hilo ROS; la UI lo consulta)
+struct ResetResult {
+  std::atomic<bool> done{false};
+  bool ok = false;
+  std::string msg;  // líneas PASS/FAIL (se escribe antes de done=true)
 };
 
 // Aprobación de ruta (protegida por appr_mx): misma lógica que scripts/aprobar_rutas.py
@@ -158,7 +168,15 @@ public:
   Tf2D lookupMapFrom(const std::string & frame);
 
   void clearMission();
+  // Limpia lo que el dashboard guarda del mapa/plan/aprobación (cambio de /laika/session_id).
+  void clearSessionCaches();
+  // nullptr si /laika/reset_session no está disponible
+  std::shared_ptr<ResetResult> requestResetSession();
   void requestOctomapReset();
+  void clearTrail();
+  // Pide limpiar global y local costmap sin bloquear. Devuelve cuántos servicios estaban listos;
+  // `answered` sube conforme responden (el llamador lo revisa más tarde).
+  int clearCostmaps(std::shared_ptr<std::atomic<int>> & answered);
 
 private:
   void cloudCb(const sensor_msgs::msg::PointCloud2::ConstSharedPtr msg);
@@ -173,6 +191,9 @@ private:
   void footprintCb(const geometry_msgs::msg::PolygonStamped::ConstSharedPtr msg);
   void cmdCb(const geometry_msgs::msg::Twist::ConstSharedPtr msg);
   void stateCb(const std_msgs::msg::String::ConstSharedPtr msg);
+  void sessionCb(const std_msgs::msg::Int32::ConstSharedPtr msg);
+  bool have_session_ = false;
+  int32_t session_id_ = 0;
   std::vector<std::array<float, 2>> pathToMap(const nav_msgs::msg::Path & p);
   nav_msgs::msg::Path last_plan_;  // solo hilo ROS
   bool have_plan_ = false;
@@ -196,6 +217,8 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PolygonStamped>::SharedPtr fp_sub_;
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr cmd_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr state_sub_;
+  rclcpp::Subscription<std_msgs::msg::Int32>::SharedPtr session_sub_;
+  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr reset_session_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_sub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr goal_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PoseWithCovarianceStamped>::SharedPtr init_pub_;
@@ -208,5 +231,6 @@ private:
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pose_pub_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr area_pub_;
   rclcpp::Client<std_srvs::srv::Empty>::SharedPtr octomap_reset_;
+  rclcpp::Client<nav2_msgs::srv::ClearEntireCostmap>::SharedPtr clear_global_, clear_local_;
   rclcpp::TimerBase::SharedPtr status_timer_;
 };

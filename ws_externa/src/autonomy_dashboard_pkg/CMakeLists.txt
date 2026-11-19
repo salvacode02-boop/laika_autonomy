@@ -16,6 +16,7 @@ find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
+find_package(nav2_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(Qt5 REQUIRED COMPONENTS Widgets OpenGL Concurrent)
@@ -52,7 +53,7 @@ target_include_directories(autonomy_dashboard PRIVATE
 )
 target_compile_definitions(autonomy_dashboard PRIVATE ${PCL_DEFINITIONS})
 ament_target_dependencies(autonomy_dashboard
-  rclcpp sensor_msgs nav_msgs geometry_msgs std_msgs std_srvs tf2 tf2_ros urdf)
+  rclcpp sensor_msgs nav_msgs geometry_msgs std_msgs std_srvs nav2_msgs tf2 tf2_ros urdf)
 target_link_libraries(autonomy_dashboard
   Qt5::Widgets Qt5::OpenGL Qt5::Concurrent
   ${PCL_LIBRARIES}

@@ -1,0 +1,65 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index e091f3a..b1ae3a0 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -57,7 +57,7 @@ find_package(sensor_msgs REQUIRED)
+ find_package(std_msgs REQUIRED)
+ find_package(std_srvs REQUIRED)
+ find_package(visualization_msgs REQUIRED)
+-find_package(pcl_ros REQUIRED)
++find_package(tf2_ros REQUIRED)
+ find_package(pcl_conversions REQUIRED)
+ find_package(livox_ros_driver2 REQUIRED)
+ find_package(rosidl_default_generators REQUIRED)
+@@ -71,14 +71,14 @@ set(dependencies
+   std_msgs
+   std_srvs
+   visualization_msgs
+-  pcl_ros
++  tf2_ros
+   pcl_conversions
+   livox_ros_driver2
+ )
+ 
+ # Thirdparty libraries
+ find_package(Eigen3 REQUIRED)
+-find_package(PCL REQUIRED COMPONENTS common io)
++find_package(PCL REQUIRED COMPONENTS common io filters)
+ 
+ message(Eigen: ${EIGEN3_INCLUDE_DIR})
+ message(STATUS "PCL: ${PCL_INCLUDE_DIRS}")
+diff --git a/package.xml b/package.xml
+index 8c39e18..729bde8 100644
+--- a/package.xml
++++ b/package.xml
+@@ -25,7 +25,7 @@
+   <depend>sensor_msgs</depend>
+   <depend>common_interfaces</depend>
+   <depend>tf2</depend>
+-  <depend>pcl_ros</depend>
++  <depend>tf2_ros</depend>
+   <depend>pcl_conversions</depend>
+   <depend>livox_ros_driver2</depend>
+ 
+diff --git a/src/laserMapping.cpp b/src/laserMapping.cpp
+index d441261..f1b027d 100644
+--- a/src/laserMapping.cpp
++++ b/src/laserMapping.cpp
+@@ -926,7 +926,7 @@ public:
+         {
+             sub_pcl_pc_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(lid_topic, rclcpp::SensorDataQoS(), standard_pcl_cbk);
+         }
+-        sub_imu_ = this->create_subscription<sensor_msgs::msg::Imu>(imu_topic, 10, imu_cbk);
++        sub_imu_ = this->create_subscription<sensor_msgs::msg::Imu>(imu_topic, rclcpp::SensorDataQoS().keep_last(200), imu_cbk);
+         pubLaserCloudFull_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_registered", 20);
+         pubLaserCloudFull_body_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_registered_body", 20);
+         pubLaserCloudEffect_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_effected", 20);
+@@ -1112,7 +1112,7 @@ private:
+         if (map_pub_en) publish_map(pubLaserCloudMap_);
+     }
+ 
+-    void map_save_callback(std_srvs::srv::Trigger::Request::ConstSharedPtr req, std_srvs::srv::Trigger::Response::SharedPtr res)
++    void map_save_callback(std_srvs::srv::Trigger::Request::SharedPtr req, std_srvs::srv::Trigger::Response::SharedPtr res)
+     {
+         RCLCPP_INFO(this->get_logger(), "Saving map to %s...", map_file_path.c_str());
+         if (pcd_save_en)

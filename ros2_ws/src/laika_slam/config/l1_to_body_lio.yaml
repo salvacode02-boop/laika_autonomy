@@ -1,0 +1,23 @@
+# Variante para FAST-LIO con IMU del cuerpo (/laika/body_imu, de /lowstate), en marco base_link.
+# cloud_R: R_body_lidar = R_body_L1gyro (mano-ojo de giros por ejes principales de cabeceo y guinada, tilt1)
+#   * R_L1gyro_lidar (normales del piso), con refit de cabeceo -5.6 deg por gravedad /lowstate (scripts/calib_l1_lidar.py
+#   --handeye, AXES=1 REFIT=1). Gravedad por meseta: rms 0.19 deg, max 0.41 deg. Offset de guinada vs cloud_R anterior: 118 deg.
+# cloud_t: URDF go2_description.urdf, radar_joint (linea 748) xyz = 0.28945 0 -0.046825.
+# imu_R / zero_acc no se usan aqui (la IMU viene del cuerpo).
+l1_to_body:
+  ros__parameters:
+    cloud_topic: /utlidar/cloud
+    imu_topic: /utlidar/imu
+    out_frame: body
+    cloud_R: [0.5204, -0.8151, 0.2547, -0.8446, -0.5353, 0.0124, 0.1262, -0.2216, -0.9669]
+    cloud_t: [0.28945, 0.0, -0.046825]
+    # [xmin, xmax, ymin, ymax, zmin, zmax]; se eliminan los puntos dentro (en base_link).
+    # Autorretornos (patas) persistentes en 6+ de 8 mesetas de tilt1, rejilla 3 cm: x [-0.345, 0.15], y [-0.23, 0.23],
+    # z [-0.35, -0.19] (simetricos en y = validacion de guinada); margen 3 cm. El piso queda en z ~ -0.42.
+    self_box: [-0.375, 0.18, -0.26, 0.26, -0.38, -0.16]
+    imu_R: [0.9655, 0.0, 0.2605, 0.0, -1.0, 0.0, 0.2605, 0.0, -0.9655]
+    gyro_bias: [0.0075, -0.0005, 0.0016]
+    gyro_scale: 1.0
+    ang_z2x_proj: 0.075
+    ang_z2y_proj: -0.227
+    zero_acc: true

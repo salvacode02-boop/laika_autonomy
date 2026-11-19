@@ -45,6 +45,9 @@ private slots:
   void onSecond();     // 1 Hz: timer, estadísticas, auto-export
   void onPrimary();    // START / PAUSE / RESUME
   void onReset();
+  void onClearTrail();
+  void onClearCostmaps();
+  void onResetSession();
   void onExportDone();
   void onMapLoaded();
   void onDeadman();    // 5 Hz, desde el hilo de la UI: si la UI se congela, el robot se corta
@@ -83,7 +86,8 @@ private:
   QProgressBar * time_bar_ = nullptr;
 
   // Barra lateral
-  QPushButton * btn_primary_ = nullptr, * btn_reset_ = nullptr, * btn_auto_ = nullptr;
+  QPushButton * btn_primary_ = nullptr, * btn_reset_ = nullptr, * btn_trail_ = nullptr, * btn_costmaps_ = nullptr, * btn_session_ = nullptr, * btn_auto_ = nullptr;
+  bool session_busy_ = false;
   QList<QPushButton *> export_btns_;
   QLabel * st_pose_ = nullptr, * st_area_ = nullptr, * st_map_ = nullptr;
   QLabel * st_scan_ = nullptr, * st_grid_ = nullptr, * st_obj_ = nullptr;
