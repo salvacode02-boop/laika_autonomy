@@ -320,3 +320,12 @@ Puente armado, sin Nav2. Las órdenes las genera `scripts/prueba_movimiento.py`.
   - Se agrega `tf2_ros` explícito; antes llegaba a través de `pcl_ros`.
   - PCL con el componente `filters`, que necesita `VoxelGrid`.
   - El callback de `map_save` recibe `SharedPtr` en vez de `ConstSharedPtr`, porque Foxy no acepta la versión const.
+- B5:
+  - Cambio al parche: la suscripción del IMU usa `SensorDataQoS` (best effort, profundidad 200), porque el relevo publica best effort. Con la suscripción reliable, FAST-LIO no recibía IMU.
+  - En `tilt1` (514 s) no se cae; `/lio/odometry` a 15.4 Hz.
+  - CPU de `fastlio_mapping`: ~19 % de un núcleo, 137 MB.
+  - Sale solo bajo `/lio/*`, sin `/tf`.
+  - z estable (std 7 mm).
+  - Excursión máxima de posición: 0.41 m con el robot girando en su lugar.
+  - Yaw: LIO 62.7° contra 47.7° del giroscopio integrado en la fase de giro. La comparación es gruesa.
+  - Falta un bag caminando para medir la deriva y validar el yaw.

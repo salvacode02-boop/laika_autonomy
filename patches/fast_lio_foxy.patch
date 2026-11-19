@@ -42,9 +42,18 @@ index 8c39e18..729bde8 100644
    <depend>livox_ros_driver2</depend>
  
 diff --git a/src/laserMapping.cpp b/src/laserMapping.cpp
-index d441261..b3e1076 100644
+index d441261..f1b027d 100644
 --- a/src/laserMapping.cpp
 +++ b/src/laserMapping.cpp
+@@ -926,7 +926,7 @@ public:
+         {
+             sub_pcl_pc_ = this->create_subscription<sensor_msgs::msg::PointCloud2>(lid_topic, rclcpp::SensorDataQoS(), standard_pcl_cbk);
+         }
+-        sub_imu_ = this->create_subscription<sensor_msgs::msg::Imu>(imu_topic, 10, imu_cbk);
++        sub_imu_ = this->create_subscription<sensor_msgs::msg::Imu>(imu_topic, rclcpp::SensorDataQoS().keep_last(200), imu_cbk);
+         pubLaserCloudFull_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_registered", 20);
+         pubLaserCloudFull_body_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_registered_body", 20);
+         pubLaserCloudEffect_ = this->create_publisher<sensor_msgs::msg::PointCloud2>("/cloud_effected", 20);
 @@ -1112,7 +1112,7 @@ private:
          if (map_pub_en) publish_map(pubLaserCloudMap_);
      }
