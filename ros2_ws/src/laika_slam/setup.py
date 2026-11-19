@@ -26,5 +26,6 @@ setup(
         'joint_states = laika_slam.joint_states:main',
         'l1_to_body = laika_slam.l1_to_body:main',
         'map3d_accumulator = laika_slam.map3d_accumulator:main',
+        'heightmap_node = laika_slam.heightmap_node:main',
     ]},
 )
