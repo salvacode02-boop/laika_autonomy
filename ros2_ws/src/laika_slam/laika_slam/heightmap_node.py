@@ -20,9 +20,10 @@ def yaw_of(q):
 class HeightGrid:
     """Rejilla alineada con odom. Sin np.add.at (numpy 1.17 en el robot)."""
 
-    def __init__(self, res=0.05, half=4.0, alpha=0.3, stale=60.0, band=0.5, memory=2.0,
-                 min_pts=3, max_h=1.5, foot=(0.38, 0.18), recentre=1.0):
+    def __init__(self, res=0.05, half=4.0, alpha=0.15, stale=3.0, band=0.5, memory=2.0,
+                 min_pts=5, max_h=1.5, foot=(0.38, 0.18), recentre=1.0):
         self.res, self.n = res, int(round(2 * half / res))
+        self.pct = 0.2
         self.alpha, self.stale, self.band, self.memory = alpha, stale, band, memory
         self.min_pts, self.max_h, self.foot, self.recentre = min_pts, max_h, foot, recentre
         self.ox = self.oy = None  # índice global (celdas) de la celda [0,0]
@@ -64,7 +65,8 @@ class HeightGrid:
         """xyz: (N,3) en odom; pose=(x, y, z, yaw); t en segundos."""
         px, py, pz, yaw = pose
         self.centre(px, py)
-        xyz = xyz[np.isfinite(xyz).all(axis=1) & (xyz[:, 2] <= pz + self.max_h)]
+        # el L1 rellena ~90 % de la nube con puntos (0,0,0): inválidos
+        xyz = xyz[np.isfinite(xyz).all(axis=1) & (xyz[:, 2] <= pz + self.max_h) & (xyz != 0).any(axis=1)]
         c, s = math.cos(yaw), math.sin(yaw)
         dx, dy = xyz[:, 0] - px, xyz[:, 1] - py
         bx, by = c * dx + s * dy, -s * dx + c * dy
@@ -110,12 +112,23 @@ class HeightGrid:
         return np.stack([(ix + self.ox + 0.5) * self.res, (iy + self.oy + 0.5) * self.res,
                          self.ground[v], self.top[v], self.over[v]], axis=1)
 
-    def floor_std(self, px, py, radius):
+    def floor_stats(self, px, py, radius, band=0.07):
+        """(MAD*1.4826 del residuo de un plano ajustado, altura media del suelo) en las celdas dentro
+        de radius y a +-band de la mediana. Con el L1 las paredes verticales también dan 'suelo' alto
+        y sin top (no hay puntos más bajos en su celda), por eso no sirve filtrar por top-ground."""
         v = np.nonzero(~np.isnan(self.ground))[0]
         iy, ix = np.divmod(v, self.n)
-        near = np.hypot((ix + self.ox + 0.5) * self.res - px, (iy + self.oy + 0.5) * self.res - py) <= radius
-        g = self.ground[v][near]
-        return float(g.std()) if len(g) > 1 else float('nan')
+        x, y = (ix + self.ox + 0.5) * self.res, (iy + self.oy + 0.5) * self.res
+        gz = self.ground[v]
+        k = np.hypot(x - px, y - py) <= radius
+        if k.sum() < 10:
+            return float('nan'), float('nan')
+        k &= np.abs(gz - np.median(gz[k])) <= band
+        if k.sum() < 10:
+            return float('nan'), float('nan')
+        A = np.column_stack([x[k], y[k], np.ones(k.sum())])
+        r = gz[k] - A.dot(np.linalg.lstsq(A, gz[k], rcond=None)[0])
+        return float(1.4826 * np.median(np.abs(r - np.median(r)))), float(gz[k].mean())
 
 
 def cloud_to_xyz(msg):
@@ -131,9 +144,9 @@ class HeightmapNode(Node):
     def __init__(self):
         super().__init__('heightmap_node')
         for n, d in (('resolution', 0.05), ('half_size', 4.0), ('recentre_dist', 1.0), ('rate', 5.0),
-                     ('max_height', 1.5), ('foot_x', 0.38), ('foot_y', 0.18), ('ground_alpha', 0.3),
-                     ('ground_stale', 60.0), ('band', 0.5), ('memory', 2.0), ('min_pts', 3),
-                     ('stats_radius', 1.5)):
+                     ('max_height', 1.5), ('foot_x', 0.38), ('foot_y', 0.18), ('ground_alpha', 0.15),
+                     ('ground_stale', 3.0), ('band', 0.5), ('memory', 2.0), ('min_pts', 5),
+                     ('stats_radius', 4.0)):
             self.declare_parameter(n, d)
         g = lambda n: self.get_parameter(n).value
         self.grid = HeightGrid(g('resolution'), g('half_size'), g('ground_alpha'), g('ground_stale'),
@@ -181,9 +194,10 @@ class HeightmapNode(Node):
         ms, self.ms = self.ms, []
         if not ms or self.pose is None:
             return
-        self.get_logger().info('ms/lote media=%.1f max=%.1f celdas=%d suelo_std=%.2f cm' % (
-            sum(ms) / len(ms), max(ms), int((~np.isnan(self.grid.ground)).sum()),
-            100 * self.grid.floor_std(self.pose[0], self.pose[1], self.radius)))
+        mad, gmean = self.grid.floor_stats(self.pose[0], self.pose[1], self.radius)
+        self.get_logger().info('ms/lote media=%.1f max=%.1f celdas=%d suelo_mad=%.2f cm suelo_medio=%.3f odom_z=%.3f' % (
+            sum(ms) / len(ms), max(ms), int((~np.isnan(self.grid.ground)).sum()), 100 * mad, gmean,
+            self.pose[2]))
 
 
 def main():
