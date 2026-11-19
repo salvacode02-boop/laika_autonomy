@@ -269,3 +269,14 @@ Puente armado, sin Nav2. Las órdenes las genera `scripts/prueba_movimiento.py`.
 - Campo "Velocidad de ruta" junto a "Aprobar ruta" (0.25–0.50 m/s, por defecto 0.30). El dashboard lo publica en `/laika/vel_ruta` a 5 Hz. El puente escala la salida de Nav2 (tope 0.3) a ese valor y lo acota a [0.25, 0.5] (`VX_HARD`), sin bajar del mínimo de marcha.
 - Dry-run: con 0.45, Move `x=0.450`. El usuario lo probó armado y confirmó que funciona bien.
 - Pendiente: medir qué ve el robot con el control apagado (sin cable el control es el único freno).
+
+## 2026-11-19: terreno complejo, lote 1 aprobado
+
+- El usuario aprobó el plan `docs/plan-terreno-complejo.md` y el lote 1 del asesor (`docs/plan-terreno-lote1.md`, B1-B6). Ninguno de esos pasos hace caminar al robot.
+- Compilar FAST_LIO_ROS2 y un `livox_ros_driver2` de solo mensajes en el `~/laika_ws` del robot, sin sudo y con el robot quieto.
+- Aceptado para lotes siguientes:
+  - `odom_to_tf` recibe `publish_tf` (true por defecto) y `/laika/reset_odom`, con el comportamiento por defecto igual.
+  - Un hook en el puente olvida la meta y la aprobación en caché al resetear. Lleva prueba unitaria.
+  - El monitor de salud solo muestra un banner; no para nada por su cuenta.
+  - Opción A del IMU primero. Height map como PointCloud2.
+  - Pospuestos: escaleras, reset desde el control, mapa de terreno persistente.
