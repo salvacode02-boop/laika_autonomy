@@ -12,6 +12,7 @@ def generate_launch_description():
     relay_yaml = os.path.join(get_package_share_directory('laika_imu_relay'), 'config', 'lowstate_imu_relay.yaml')
     l1_yaml = os.path.join(cfg, 'l1_to_body_lio.yaml')
     bag = LaunchConfiguration('bag')
+    compare = LaunchConfiguration('compare')
 
     # Remap y no parámetros: en Foxy el yaml gana sobre un override desde el launch.
     def l1(cond, remaps=()):
@@ -24,6 +25,7 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument('bag', default_value='false'),
+        DeclareLaunchArgument('compare', default_value='false'),  # modo sombra: compara con map->base_link de slam
         l1(UnlessCondition(bag)),
         l1(IfCondition(bag), [('/utlidar/cloud', '/bag/utlidar/cloud'), ('/utlidar/imu', '/bag/utlidar/imu')]),
         relay(UnlessCondition(bag)),
@@ -36,4 +38,6 @@ def generate_launch_description():
                          ('/cloud_registered_body', '/lio/cloud_registered_body'),
                          ('/path', '/lio/path'), ('/map_save', '/lio/map_save')],
              sigterm_timeout='20', sigkill_timeout='20'),
+        Node(package='laika_slam', executable='lio_compare', name='lio_compare', output='screen',
+             condition=IfCondition(compare)),
     ])
