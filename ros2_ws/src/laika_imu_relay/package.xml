@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>laika_imu_relay</name>
+  <version>0.1.0</version>
+  <description>Relay de la IMU del cuerpo (/lowstate) a sensor_msgs/Imu /laika/body_imu</description>
+  <maintainer email="laika@example.com">laika</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>unitree_go</depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>
