@@ -1,0 +1,16 @@
+# Plan: docs/plan-terreno-lote1.md B6. Entradas remapeables por launch/CLI.
+heightmap_node:
+  ros__parameters:
+    resolution: 0.05
+    half_size: 4.0          # rejilla de 2*half_size / resolution celdas por lado
+    recentre_dist: 1.0
+    rate: 5.0
+    max_height: 1.5         # descarta puntos sobre base_z + max_height
+    foot_x: 0.38
+    foot_y: 0.18
+    ground_alpha: 0.3
+    ground_stale: 60.0
+    band: 0.50              # top: (ground, ground+band]; overhead: > ground+band
+    memory: 2.0
+    min_pts: 3
+    stats_radius: 1.5
