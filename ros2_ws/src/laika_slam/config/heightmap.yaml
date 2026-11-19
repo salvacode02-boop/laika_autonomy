@@ -8,9 +8,9 @@ heightmap_node:
     max_height: 1.5         # descarta puntos sobre base_z + max_height
     foot_x: 0.38
     foot_y: 0.18
-    ground_alpha: 0.3
-    ground_stale: 60.0
+    ground_alpha: 0.15
+    ground_stale: 3.0
     band: 0.50              # top: (ground, ground+band]; overhead: > ground+band
     memory: 2.0
-    min_pts: 3
-    stats_radius: 1.5
+    min_pts: 5
+    stats_radius: 4.0
