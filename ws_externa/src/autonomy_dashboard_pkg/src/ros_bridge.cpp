@@ -137,6 +137,9 @@ RosBridge::RosBridge()
     t_fp, 10, std::bind(&RosBridge::footprintCb, this, _1));
   cmd_sub_ = create_subscription<geometry_msgs::msg::Twist>(t_cmd, 10, std::bind(&RosBridge::cmdCb, this, _1));
   state_sub_ = create_subscription<std_msgs::msg::String>(t_state, 10, std::bind(&RosBridge::stateCb, this, _1));
+  session_sub_ = create_subscription<std_msgs::msg::Int32>(
+    "/laika/session_id", rclcpp::QoS(1).reliable().transient_local(), std::bind(&RosBridge::sessionCb, this, _1));
+  reset_session_ = create_client<std_srvs::srv::Trigger>("/laika/reset_session");
   goal_sub_ = create_subscription<geometry_msgs::msg::PoseStamped>(t_goal, 10, std::bind(&RosBridge::goalCb, this, _1));
   goal_pub_ = create_publisher<geometry_msgs::msg::PoseStamped>(t_goal, 10);
   init_pub_ = create_publisher<geometry_msgs::msg::PoseWithCovarianceStamped>(t_init, 10);
@@ -429,6 +432,57 @@ void RosBridge::clearMission()
     std::lock_guard<std::mutex> lk(poi_mx);
     pois.clear();
   }
+}
+
+void RosBridge::sessionCb(const std_msgs::msg::Int32::ConstSharedPtr msg)
+{
+  const bool changed = have_session_ && msg->data != session_id_;  // el primer valor (latched) no cuenta
+  have_session_ = true;
+  session_id_ = msg->data;
+  if (changed) {
+    RCLCPP_WARN(get_logger(), "Sesión nueva (%d): limpio mapa, costmaps, plan y aprobación", msg->data);
+    clearSessionCaches();
+  }
+}
+
+void RosBridge::clearSessionCaches()
+{
+  clearMission();
+  {
+    std::lock_guard<std::mutex> lk(grid_mx);
+    grid = GridData();
+    grid_version++;
+  }
+  {
+    std::lock_guard<std::mutex> lk(nav_mx);
+    nav.global_cm = GridData();
+    nav.local_cm = GridData();
+    nav.plan.clear();
+    nav.local_plan.clear();
+    nav_version++;
+  }
+  have_plan_ = false;
+  {
+    std::lock_guard<std::mutex> lk(appr_mx);
+    appr = ApprovalData();  // sin meta, sin plan, sin aprobación
+    appr_version++;
+  }
+  std_msgs::msg::String s;  // invalida la aprobación publicada
+  appr_pub_->publish(s);
+}
+
+std::shared_ptr<ResetResult> RosBridge::requestResetSession()
+{
+  if (!reset_session_->service_is_ready()) {return nullptr;}
+  auto res = std::make_shared<ResetResult>();
+  reset_session_->async_send_request(std::make_shared<std_srvs::srv::Trigger::Request>(),
+    [res](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture f) {
+      const auto r = f.get();
+      res->ok = r->success;
+      res->msg = r->message;
+      res->done = true;
+    });
+  return res;
 }
 
 void RosBridge::requestOctomapReset()
