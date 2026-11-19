@@ -336,3 +336,15 @@ Puente armado, sin Nav2. Las órdenes las genera `scripts/prueba_movimiento.py`.
   - Dirección de avance contra +x: mediana 1.3° en 3 tramos rectos (uno a −10.6°).
   - Paredes: grosor 5.7-6.7 cm (std, banda ±10 cm). El usuario revisó `loop1_lio.pcd`: sin paredes dobles ni puntos colapsados.
   - CPU ~16 % de un núcleo, 15.4 Hz, sin divergencia.
+
+## 2026-11-19: terreno lote 2 aprobado
+
+- El usuario aprobó `docs/plan-terreno-lote2.md` (C1-C9) y las 7 recomendaciones del asesor:
+  1. La odometría por defecto sigue siendo la de patas hasta que una regresión armada sobre LIO pase (lote 3).
+  2. `--lio` y `--odom-lio` no se combinan con `--sin-cable`.
+  3. `/laika/odom` (twist para Nav2) sigue con la de patas.
+  4. `map3d` no corre con `--odom-lio` en el lote 2.
+  5. Se corrige el TF estático `base_link → utlidar_lidar` con el `R_body_lidar` nuevo (solo lo usa RViz).
+  6. El reset solo se permite en IDLE.
+  7. "Arrancar" en el dashboard pasa `--sesion` cuando C9 pase.
+- Ningún paso arma el puente. La navegación armada sobre LIO va al lote 3, con su propia aprobación.
