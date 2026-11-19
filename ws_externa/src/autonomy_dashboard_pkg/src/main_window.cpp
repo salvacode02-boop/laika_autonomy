@@ -280,6 +280,12 @@ QWidget * MainWindow::buildSidebar()
   btn_costmaps_->setCursor(Qt::PointingHandCursor);
   connect(btn_costmaps_, &QPushButton::clicked, this, &MainWindow::onClearCostmaps);
   mv->addWidget(btn_costmaps_);
+  btn_session_ = new QPushButton("Reiniciar sesión");
+  btn_session_->setObjectName("danger");
+  btn_session_->setCursor(Qt::PointingHandCursor);
+  btn_session_->setEnabled(false);
+  connect(btn_session_, &QPushButton::clicked, this, &MainWindow::onResetSession);
+  mv->addWidget(btn_session_);
   v->addWidget(mcard);
 
   // --- Datos
@@ -478,6 +484,9 @@ void MainWindow::updateNav()
     const bool moving = st.contains("ACTIVE") || st.contains("RUN");
     btn_costmaps_->setEnabled(!moving);
     btn_costmaps_->setToolTip(moving ? "Deshabilitado mientras el puente se mueve (ACTIVE/RUN)" : "");
+    const bool idle = st == "IDLE" || st == "SC:IDLE";  // reiniciar la sesión solo con el puente en IDLE
+    if (!session_busy_) {btn_session_->setEnabled(idle);}
+    btn_session_->setToolTip(idle ? "" : "Solo con el puente en IDLE (pulsa L2+Y)");
   }
   // Costmaps: solo se reconvierten a imagen cuando llegan (versión propia por cada uno)
   static uint64_t last_cm_global = ~0ull;
@@ -937,6 +946,43 @@ void MainWindow::onClearTrail()
   bridge_->clearTrail();
   onSecond();
   toast("Trayectoria borrada", "info");
+}
+
+void MainWindow::onResetSession()
+{
+  const auto r = QMessageBox::question(this, "Reiniciar sesión",
+    "¿Reiniciar la sesión?\nSe guarda el mapa actual como autosave, se reinicia slam_toolbox y la odometría "
+    "(el mapa y la posición empiezan de cero) y se borran metas, plan y aprobación.\n"
+    "El robot debe estar quieto.");
+  if (r != QMessageBox::Yes) {return;}
+  auto res = bridge_->requestResetSession();
+  if (!res) {toast("Reiniciar sesión: /laika/reset_session no disponible", "err"); return;}
+  session_busy_ = true;
+  btn_session_->setEnabled(false);
+  toast("Reiniciando sesión...", "info");
+  auto * t = new QTimer(this);
+  auto * waited = new int(0);
+  connect(t, &QTimer::timeout, this, [this, t, res, waited] {
+      *waited += 250;
+      const bool timeout = *waited >= 15000;
+      if (!res->done.load() && !timeout) {return;}
+      t->stop();
+      t->deleteLater();
+      delete waited;
+      session_busy_ = false;
+      if (!res->done.load()) {
+        QMessageBox::warning(this, "Reiniciar sesión", "Sin respuesta en 15 s.");
+        return;
+      }
+      const QString txt = QString::fromStdString(res->msg);
+      if (res->ok) {toast("Sesión reiniciada", "ok");}
+      QMessageBox box(res->ok ? QMessageBox::Information : QMessageBox::Warning, "Reiniciar sesión",
+        res->ok ? "Sesión reiniciada." : "Falló el reinicio de sesión.", QMessageBox::Ok, this);
+      box.setDetailedText(txt);
+      box.setInformativeText(txt);
+      box.exec();
+    });
+  t->start(250);
 }
 
 void MainWindow::onClearCostmaps()
