@@ -329,3 +329,10 @@ Puente armado, sin Nav2. Las órdenes las genera `scripts/prueba_movimiento.py`.
   - Excursión máxima de posición: 0.41 m con el robot girando en su lugar.
   - Yaw: LIO 62.7° contra 47.7° del giroscopio integrado en la fase de giro. La comparación es gruesa.
   - Falta un bag caminando para medir la deriva y validar el yaw.
+- B5 en `loop1` (caminata de 299 s con joystick y regreso a la marca; verdad de terreno: 2 cm adelante, yaw ≈ 0):
+  - Error de regreso:
+    - LIO: 4.2 cm en 3D y 0.74° de yaw. **Pasa** la compuerta de 8 cm / 1.5°.
+    - Odometría de patas: 23 cm.
+  - Dirección de avance contra +x: mediana 1.3° en 3 tramos rectos (uno a −10.6°).
+  - Paredes: grosor 5.7-6.7 cm (std, banda ±10 cm), dudoso. Falta revisar `~/laika_bags/loop1_lio.pcd` visualmente.
+  - CPU ~16 % de un núcleo, 15.4 Hz, sin divergencia.
