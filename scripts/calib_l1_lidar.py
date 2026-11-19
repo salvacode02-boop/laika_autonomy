@@ -68,7 +68,124 @@ def floor_normal(pts):
     return n, res, keep.sum()
 
 
+RG_GYRO_TO_LIDAR = np.array([[.9995, .0077, .029], [-.0056, .9972, -.074], [-.0295, .0738, .9968]])  # fit previo (4.07 deg rms), no ortonormalizada
+FC = float(os.environ.get("FC", 8))
+URDF_T = np.array([0.28945, 0, -0.046825])  # go2_description.urdf radar_joint, linea 748
+
+
+def rx(db, topic):
+    """(t_recepcion_s, mensaje); /lowstate: parseo CDR a mano (unitree_go no existe en la externa)."""
+    return db.execute('SELECT timestamp,data FROM messages WHERE topic_id=(SELECT id FROM topics WHERE name=?) ORDER BY timestamp', (topic,))
+
+
+def handeye(bag):
+    from rclpy.serialization import deserialize_message
+    from sensor_msgs.msg import Imu
+    db = sqlite3.connect(glob.glob(os.path.join(bag, '*.db3'))[0])
+    ls = [(t * 1e-9, np.frombuffer(bytes(d)[44:68], '<f4').astype(float)) for t, d in rx(db, '/lowstate')]
+    tl = np.array([t for t, _ in ls]); wl = np.array([v[:3] for _, v in ls]); al = np.array([v[3:] for _, v in ls])
+    im = [(t * 1e-9, deserialize_message(bytes(d), Imu)) for t, d in rx(db, '/utlidar/imu')]
+    tr = np.array([t for t, _ in im]); ts = np.array([st(m.header) for _, m in im])
+    wi = np.array([[m.angular_velocity.x, m.angular_velocity.y, m.angular_velocity.z] for _, m in im])
+    fs_l, fs_i = 1 / np.median(np.diff(tl)), 1 / np.median(np.diff(tr))
+    print(f'/lowstate {len(tl)} msgs {fs_l:.0f} Hz; L1 imu {len(tr)} msgs {fs_i:.0f} Hz; |a| lowstate mediana {np.median(np.linalg.norm(al,axis=1)):.2f}')
+    # 1. sesgos en reposo (L1 |w|<0.05 suavizada) y pasabajas ~8 Hz
+    wl8, wi8 = lp(wl, fs_l, FC), lp(wi, fs_i, FC)
+    quiet_i = lp(np.linalg.norm(wi, axis=1)[:, None], fs_i, 10.0)[:, 0] < 0.05
+    qt = tr[quiet_i]
+    quiet_l = np.isin(np.searchsorted(qt, tl), np.arange(len(qt))) & (np.abs(tl - qt[np.clip(np.searchsorted(qt, tl), 0, len(qt) - 1)]) < 0.005)
+    wl8 = wl8 - wl8[quiet_l].mean(0); wi8 = wi8 - wi8[quiet_i].mean(0)
+    print(f'sesgo L1 {wi[quiet_i].mean(0).round(4)}  sesgo lowstate {wl[quiet_l].mean(0).round(4)}  (reposo: {quiet_l.sum()} muestras lowstate)')
+    # 2. latencia: |w| lowstate(t) vs |w| L1(t - L)  (L>0: L1 llega con atraso)
+    nl, ni = np.linalg.norm(wl8, axis=1), np.linalg.norm(wi8, axis=1)
+    lags = np.arange(-0.3, 0.3001, 0.001)
+    sel = np.abs(nl) > 0.0
+    cc = []
+    for L in lags:
+        x = np.interp(tl - L, tr, ni)
+        cc.append(np.corrcoef(nl, x)[0, 1])
+    cc = np.array(cc); k = int(np.argmax(cc)); L = lags[k]
+    print('curva corr:', {int(x*1000): round(float(cc[int((x+0.3)*1000)]),3) for x in (-0.05,-0.02,-0.01,-0.005,0,0.005,0.01,0.02,0.05)})
+    half = lags[cc > cc[k] - 0.02]
+    print(f'latencia: pico corr {cc[k]:.3f} en {L*1000:+.0f} ms (L1 recibido {L*1000:+.0f} ms despues que lowstate); ancho a -0.02: {half.min()*1000:+.0f}..{half.max()*1000:+.0f} ms')
+    ok2 = cc[k] >= 0.9  # nitidez (+-10 ms) solo informativa: con movimiento lento la curva es plana
+    print('GATE2', 'ok' if ok2 else 'FALLA'); 
+    if not ok2:
+        sys.exit(1)
+    # 3. rotacion
+    W = np.column_stack([np.interp(tl - L, tr, wi8[:, j]) for j in range(3)])
+    m = np.linalg.norm(wl8, axis=1) > 0.1
+    def fit(mm):
+        U, S, Vt = np.linalg.svd(W[mm].T @ wl8[mm])
+        R = (U @ np.diag([1, 1, np.sign(np.linalg.det(U @ Vt))]) @ Vt).T  # R W ~ wl (gyro L1 -> body)
+        return R, S
+    R, S = fit(m)
+    res = np.sqrt(np.mean(np.sum((W[m] @ R.T - wl8[m]) ** 2, 1)))
+    sc = np.linalg.norm(W[m], axis=1).sum() / np.linalg.norm(wl8[m], axis=1).sum()
+    h = len(tl) // 2; Ra, _ = fit(m & (np.arange(len(tl)) < h)); Rb, _ = fit(m & (np.arange(len(tl)) >= h))
+    print(f'rotacion: N {m.sum()}  s2/s1 {S[1]/S[0]:.3f} s3/s1 {S[2]/S[0]:.3f}  residuo {res:.4f} rad/s  escala L1/body {sc:.3f}  mitades {ang(Ra@Rb.T):.2f} deg')
+    if os.environ.get('AXES'):  # ajuste restringido por ejes principales (cabeceo y guinada)
+        t_ = tl - tl[0]
+        ax = {}
+        for nm, (a_, b_) in (('cabeceo', (415, 460)), ('guinada', (476, 508))):
+            mm = (t_ > a_) & (t_ < b_) & (np.linalg.norm(wl8, axis=1) > 0.1)
+            out = []
+            for X in (W, wl8):
+                ev, V = np.linalg.eigh(X[mm].T @ X[mm]); out.append((V[:, 2], ev[2] / ev.sum()))
+            (u1, e1), (ub, eb) = out
+            c = np.mean((W[mm] @ u1) * (wl8[mm] @ ub))
+            if c < 0: ub = -ub
+            ax[nm] = (u1, ub); print(f'  {nm}: N {mm.sum()}  PCA var L1 {e1:.3f} body {eb:.3f}  corr proy {np.corrcoef(W[mm]@u1, wl8[mm]@ub)[0,1]:+.3f}  eje L1 {u1.round(3)} body {ub.round(3)}')
+        a_l1 = np.degrees(np.arccos(abs(ax['cabeceo'][0] @ ax['guinada'][0]))); a_b = np.degrees(np.arccos(abs(ax['cabeceo'][1] @ ax['guinada'][1])))
+        print(f'  angulo cabeceo-guinada: L1 {a_l1:.1f}  body {a_b:.1f}  (deben coincidir <=3)')
+        if abs(a_l1 - a_b) > 3: print('FALLA: los giroscopios discrepan'); sys.exit(1)
+        P = np.array([ax['cabeceo'][0], ax['guinada'][0]]); Q = np.array([ax['cabeceo'][1], ax['guinada'][1]])
+        R, rr = kabsch(P, Q); print(f'  Kabsch 2 ejes residuo {rr:.2f} deg; R_body_L1gyro =', R.ravel().round(4).tolist())
+        print('  eje cabeceo body', ax['cabeceo'][1].round(3), ' guinada body', ax['guinada'][1].round(3))
+    print('R_body_L1gyro =', R.ravel().round(4).tolist())
+    ok3 = S[1] / S[0] >= 0.1 and res <= 0.03 and abs(sc - 1) <= 0.03 and ang(Ra @ Rb.T) <= 1
+    print('GATE3', 'ok' if ok3 else 'FALLA')
+    if not ok3 and not os.environ.get('AXES'):
+        sys.exit(1)
+    # 4. gravedad en mesetas vs normales del piso
+    Rbl = R @ RG_GYRO_TO_LIDAR.T  # lidar -> gyro L1 -> body
+    u, _, vt = np.linalg.svd(Rbl); Rbl = u @ vt
+    cts = [(st(mm.header), mm) for mm in leer(db, '/utlidar/cloud')]
+    ct = np.array([t for t, _ in cts]); off = np.median(tr - ts)
+    runs = []; k = 0
+    while k < len(quiet_i):
+        if quiet_i[k]:
+            j = k
+            while j < len(quiet_i) and quiet_i[j]: j += 1
+            if ts[j - 1] - ts[k] >= 1.0: runs.append((k, j))
+            k = j
+        else: k += 1
+    errs, norms = [], []
+    for k, j in runs:
+        a0, b0 = ts[k] + 0.3, ts[j - 1] - 0.3
+        idx = np.flatnonzero((ct >= a0) & (ct <= b0))[:20]
+        if len(idx) < 3: continue
+        n, r_, _ = floor_normal(np.vstack([cloud_xyz(cts[i][1]) for i in idx]))
+        if r_ > 0.015: continue
+        mm = (tl >= a0 + off - L) & (tl <= b0 + off - L)  # tiempo recepcion lowstate
+        if mm.sum() < 50: continue
+        am = al[mm].mean(0)
+        e = np.degrees(np.arccos(np.clip(am @ (Rbl @ n) / np.linalg.norm(am), -1, 1)))
+        errs.append(e); norms.append(np.linalg.norm(am))
+        print(f'  meseta {a0-ts[0]:7.1f} s: err gravedad {e:5.2f} deg  |a| {norms[-1]:.2f}  n_body {(Rbl@n).round(3)} a_body {(am/np.linalg.norm(am)).round(3)}')
+    errs = np.array(errs); rms = np.sqrt(np.mean(errs ** 2))
+    print(f'R_body_lidar = {Rbl.ravel().round(4).tolist()}\n  vs cloud_R actual: {ang(Rbl @ CLOUD_R.T):.1f} deg;  t = {URDF_T.tolist()} (URDF radar_joint)')
+    print(f'gravedad: rms {rms:.2f} deg, max {errs.max():.2f}; |a| medio {np.mean(norms):.2f}')
+    u2 = np.array([-0.853, -0.531, 0.015]); u2 /= np.linalg.norm(u2)
+    print('eje de cabeceo L1 en body', (R @ u2).round(3))
+    print('yaw offset body_lidar vs cloud_R (z): %.1f deg' % np.degrees(np.arctan2((Rbl @ CLOUD_R.T)[1, 0], (Rbl @ CLOUD_R.T)[0, 0])))
+    print('GATE4 (<=2 en cada meseta: %s)' % bool(errs.max() <= 2), 'ok' if rms <= 1.5 else ('REFINAR (1.5-4)' if rms <= 4 else 'FALLA'))
+    sys.exit(0 if rms <= 1.5 else 1)
+
+
 def main():
+    if sys.argv[1] == '--handeye':
+        return handeye(sys.argv[2])
     bag = sys.argv[1]
     db = sqlite3.connect(glob.glob(os.path.join(bag, '*.db3'))[0])
     imu = list(leer(db, '/utlidar/imu'))
