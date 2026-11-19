@@ -11,8 +11,10 @@ l1_to_body:
     out_frame: body
     cloud_R: [0.5204, -0.8151, 0.2547, -0.8446, -0.5353, 0.0124, 0.1262, -0.2216, -0.9669]
     cloud_t: [0.28945, 0.0, -0.046825]
-    # [xmin, xmax, ymin, ymax, zmin, zmax]; se eliminan los puntos dentro (en body)
-    self_box: [-0.7, -0.1, -0.3, 0.3, -0.6468, -0.0468]
+    # [xmin, xmax, ymin, ymax, zmin, zmax]; se eliminan los puntos dentro (en base_link).
+    # Autorretornos (patas) persistentes en 6+ de 8 mesetas de tilt1, rejilla 3 cm: x [-0.345, 0.15], y [-0.23, 0.23],
+    # z [-0.35, -0.19] (simetricos en y = validacion de guinada); margen 3 cm. El piso queda en z ~ -0.42.
+    self_box: [-0.375, 0.18, -0.26, 0.26, -0.38, -0.16]
     imu_R: [0.9655, 0.0, 0.2605, 0.0, -1.0, 0.0, 0.2605, 0.0, -0.9655]
     gyro_bias: [0.0075, -0.0005, 0.0016]
     gyro_scale: 1.0
