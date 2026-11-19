@@ -280,3 +280,17 @@ Puente armado, sin Nav2. Las órdenes las genera `scripts/prueba_movimiento.py`.
   - El monitor de salud solo muestra un banner; no para nada por su cuenta.
   - Opción A del IMU primero. Height map como PointCloud2.
   - Pospuestos: escaleras, reset desde el control, mapa de terreno persistente.
+
+## 2026-11-19: terreno lote 1, avance
+
+- R1 cerrado: los botones del dashboard compilan. En dry-run (`--prueba --slam`), `ClearEntireCostmap` funciona de Humble a Foxy (local y global responden). Falta la prueba visual en la GUI.
+- Bags (P5.0): la grabación de 10 s en el robot pasa con los 10 tópicos.
+- `heightmap_node` en el robot (replay de `cuarto1`):
+  - 32-56 ms por lote y CPU de 24-44 % de un núcleo.
+  - Desviación del piso: 8 cm con la métrica cruda (sin quitar el plano). Se corrige la métrica (plano + MAD) y el estimador (percentil 20).
+- IMU del L1:
+  - La hipótesis "B o Rz(π)·B" era falsa: el yaw es libre.
+  - La odometría no sirve como referencia de orientación (salta 17° en segundos).
+  - La prueba de inclinación (`tilt1`) con normales del piso del lidar no pasa la compuerta: acel 6° rms, giro 31-54°.
+  - Pista: el eje de giro del giroscopio (fase2_cuarto1) y la normal del piso en el marco del lidar difieren ~2°, así que el giroscopio ≈ marco del lidar y solo el acelerómetro difiere.
+  - Pendiente: revisar el desfase de tiempos entre nube e IMU antes del ajuste.
