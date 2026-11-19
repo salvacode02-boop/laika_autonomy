@@ -294,3 +294,19 @@ Puente armado, sin Nav2. Las órdenes las genera `scripts/prueba_movimiento.py`.
   - La prueba de inclinación (`tilt1`) con normales del piso del lidar no pasa la compuerta: acel 6° rms, giro 31-54°.
   - Pista: el eje de giro del giroscopio (fase2_cuarto1) y la normal del piso en el marco del lidar difieren ~2°, así que el giroscopio ≈ marco del lidar y solo el acelerómetro difiere.
   - Pendiente: revisar el desfase de tiempos entre nube e IMU antes del ajuste.
+
+## 2026-11-19: calibración L1 → cuerpo para FAST-LIO (opción B del IMU)
+
+- El acelerómetro del L1 no sirve: marca 13° de inclinación donde el lidar y el giroscopio marcan 0°. FAST-LIO usará el IMU del cuerpo (`/lowstate`), que llega por el relevo C++ `laika_imu_relay` → `/laika/body_imu` (500 Hz, 5-8 % de un núcleo; latencia 0 ± 10 ms medida con movimiento lento).
+- El `cloud_R` del URDF (Ry 164.9°) no corresponde al marco crudo del L1: hay ~120° de yaw de diferencia.
+- `R_body_lidar` nuevo, en `config/l1_to_body_lio.yaml`:
+  - Rotación: hand-eye de los ejes de pitch y yaw entre el giroscopio del L1 y el de `/lowstate`, más un reajuste de roll/pitch con la gravedad de `/lowstate` contra la normal del piso. Bag `tilt1`, `scripts/calib_l1_lidar.py`.
+  - Traslación: la del URDF (`radar_joint`).
+- Compuertas:
+  - Gravedad: 0.01-0.41° en las 14 mesetas.
+  - Eje de pitch: +y a 1.1°.
+  - Paredes contra `cloud_deskewed`: +4.8° de yaw y 93 % de los puntos a < 10 cm (con el `cloud_R` viejo: −121°).
+  - El piso queda al frente.
+  - Las piernas aparecen simétricas en y.
+- `self_box` rehecho en el marco nuevo. `l1_to_body.yaml` y Point-LIO quedan sin tocar.
+- Pendiente: medir la latencia con un bag de movimiento rápido. Validar el yaw en B5 (dirección de avance de LIO contra +x a ≤ 5°).
