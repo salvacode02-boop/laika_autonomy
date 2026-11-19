@@ -85,6 +85,12 @@ class SinCable:
         self.state, self.consumed = 'IDLE', True
         return 'stop'
 
+    def on_session_reset(self):
+        """Reinicio de sesion: IDLE, meta olvidada y aprobacion consumida. Solo detiene, nunca arranca."""
+        was = self.state
+        self.state, self.goal, self.consumed = 'IDLE', None, True
+        return 'stop' if was != 'IDLE' else None
+
     def on_goal(self, key):
         if key == self.goal:  # eco de la republicacion
             return None

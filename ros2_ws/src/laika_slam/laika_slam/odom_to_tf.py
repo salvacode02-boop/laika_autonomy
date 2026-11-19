@@ -1,3 +1,4 @@
+import math
 from collections import deque
 
 import numpy as np
@@ -8,16 +9,49 @@ from nav_msgs.msg import Odometry
 from sensor_msgs.msg import PointCloud2, PointField
 from tf2_msgs.msg import TFMessage
 from geometry_msgs.msg import TransformStamped
+from std_srvs.srv import Trigger
+
+
+# Referencia (x, y, yaw) del reset de sesion: lo publicado es Rz(-yaw)(p - p_ref), yaw - yaw_ref.
+def quat_yaw(x, y, z, w):
+    return math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
+
+
+def rebase_xy(x, y, ref):
+    c, s = math.cos(ref[2]), math.sin(ref[2])
+    dx, dy = x - ref[0], y - ref[1]
+    return c * dx + s * dy, -s * dx + c * dy
+
+
+def rebase_quat(q, ref):
+    """q = (x, y, z, w); r = Rz(-yaw_ref); devuelve r*q."""
+    rz, rw = math.sin(-ref[2] / 2), math.cos(-ref[2] / 2)
+    x, y, z, w = q
+    return (rw * x - rz * y, rw * y + rz * x, rw * z + rz * w, rw * w - rz * z)
+
+
+def inject_jump(ref, raw_xy, deg):
+    """Ref nueva que gira el yaw publicado `deg` grados dejando igual la posicion publicada actual."""
+    px, py = rebase_xy(raw_xy[0], raw_xy[1], ref)
+    yaw = ref[2] - math.radians(deg)
+    c, s = math.cos(yaw), math.sin(yaw)
+    return (raw_xy[0] - (c * px - s * py), raw_xy[1] - (s * px + c * py), yaw)
 
 
 class OdomToTf(Node):
     def __init__(self):
         super().__init__('odom_to_tf')
-        self.pub = self.create_publisher(TFMessage, '/tf', 100)
+        for n, d in (('odom_topic', '/utlidar/robot_odom'), ('cloud_topic', '/utlidar/cloud_deskewed'),
+                     ('publish_tf', True), ('test_yaw_jump_deg', 0.0)):
+            self.declare_parameter(n, d)
+        self.publish_tf = self.get_parameter('publish_tf').value
+        odom_topic, cloud_topic = self.get_parameter('odom_topic').value, self.get_parameter('cloud_topic').value
+        self.pub = self.create_publisher(TFMessage, '/tf', 100) if self.publish_tf else None
         self.odom_pub = self.create_publisher(Odometry, '/laika/odom', 10)  # R3: stamp corregido para Nav2
-        self.create_subscription(Odometry, '/utlidar/robot_odom', self.cb, qos_profile_sensor_data)
-        self.cloud_pub = self.create_publisher(PointCloud2, '/laika/cloud_deskewed', qos_profile_sensor_data)
-        self.create_subscription(PointCloud2, '/utlidar/cloud_deskewed', self.cloud_cb, qos_profile_sensor_data)
+        self.create_subscription(Odometry, odom_topic, self.cb, qos_profile_sensor_data)
+        if cloud_topic:
+            self.cloud_pub = self.create_publisher(PointCloud2, '/laika/cloud_deskewed', qos_profile_sensor_data)
+            self.create_subscription(PointCloud2, cloud_topic, self.cloud_cb, qos_profile_sensor_data)
         for n, d in (('window_size', 10), ('publish_rate', 5.0), ('z_min_rel', -0.12),
                      ('z_max_rel', 0.50), ('min_dist', 0.6)):
             self.declare_parameter(n, d)
@@ -27,8 +61,36 @@ class OdomToTf(Node):
         self.base = None  # (x, y, z) de base_link en odom
         self.last_header = None
         self.counts = []
-        self.create_timer(1.0 / g('publish_rate'), self.publish_window)
+        if cloud_topic:
+            self.create_timer(1.0 / g('publish_rate'), self.publish_window)
         self.offset = None  # ns; now() - stamp. Los stamps de la .161 van ~2060 s atrasados.
+        self.ref = None  # (x, y, yaw) del reset; None = identidad (comportamiento original)
+        self.raw = None  # ultima pose cruda (x, y, yaw)
+        if self.publish_tf:
+            self.create_service(Trigger, '/laika/reset_odom', self.reset_cb)
+            if g('test_yaw_jump_deg') != 0.0:
+                self.jump = g('test_yaw_jump_deg')
+                self.create_service(Trigger, '/laika/inject_yaw_jump', self.jump_cb)
+
+    def reset_cb(self, _req, res):
+        if self.raw is None:
+            res.success, res.message = False, 'sin odometria todavia'
+            return res
+        self.ref = self.raw
+        self.win.clear()
+        self.offset = None
+        res.success, res.message = True, 'ref=(%.3f, %.3f, %.1f deg)' % (
+            self.ref[0], self.ref[1], math.degrees(self.ref[2]))
+        return res
+
+    def jump_cb(self, _req, res):
+        if self.raw is None:
+            res.success, res.message = False, 'sin odometria todavia'
+            return res
+        self.ref = inject_jump(self.ref or (0.0, 0.0, 0.0), self.raw, self.jump)
+        self.win.clear()
+        res.success, res.message = True, 'salto de yaw %.1f deg' % self.jump
+        return res
 
     def now_ns(self):
         return self.get_clock().now().nanoseconds
@@ -56,6 +118,9 @@ class OdomToTf(Node):
         d = np.hypot(xyz[:, 0] - bx, xyz[:, 1] - by)
         keep = np.isfinite(xyz).all(axis=1) & (dz >= self.z_min) & (dz <= self.z_max) & (d >= self.min_dist)
         xyz = xyz[keep]
+        if self.ref is not None:
+            xyz = xyz.copy()
+            xyz[:, 0], xyz[:, 1] = rebase_xy(xyz[:, 0].astype(np.float64), xyz[:, 1].astype(np.float64), self.ref)
         self.shift(msg.header.stamp)
         self.last_header = msg.header
         self.win.append(xyz)
@@ -92,6 +157,11 @@ class OdomToTf(Node):
             self.offset = self.now_ns() - raw
         p = msg.pose.pose.position
         self.base = (p.x, p.y, p.z)
+        o = msg.pose.pose.orientation
+        self.raw = (p.x, p.y, quat_yaw(o.x, o.y, o.z, o.w))
+        if self.ref is not None:  # no toca z, roll, pitch ni twist
+            p.x, p.y = rebase_xy(p.x, p.y, self.ref)
+            o.x, o.y, o.z, o.w = rebase_quat((o.x, o.y, o.z, o.w), self.ref)
         t = TransformStamped()
         t.header = msg.header
         self.shift(t.header.stamp)  # stamp original + offset comun (D3 revisada)
@@ -100,7 +170,8 @@ class OdomToTf(Node):
         t.transform.translation.y = msg.pose.pose.position.y
         t.transform.translation.z = msg.pose.pose.position.z
         t.transform.rotation = msg.pose.pose.orientation
-        self.pub.publish(TFMessage(transforms=[t]))
+        if self.pub:
+            self.pub.publish(TFMessage(transforms=[t]))
         msg.header.stamp = t.header.stamp
         self.odom_pub.publish(msg)
 

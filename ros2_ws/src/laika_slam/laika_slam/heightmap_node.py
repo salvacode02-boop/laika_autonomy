@@ -7,6 +7,7 @@ from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import PointCloud2, PointField
+from std_srvs.srv import Trigger
 
 _NP = {PointField.INT8: 'i1', PointField.UINT8: 'u1', PointField.INT16: 'i2',
        PointField.UINT16: 'u2', PointField.INT32: 'i4', PointField.UINT32: 'u4',
@@ -161,7 +162,15 @@ class HeightmapNode(Node):
         self.create_subscription(PointCloud2, '/utlidar/cloud_deskewed', self.cloud_cb, rel)
         self.pub = self.create_publisher(PointCloud2, '/laika/heightmap_cloud', 1)
         self.create_timer(1.0 / g('rate'), self.tick)
+        self.create_service(Trigger, '~/reset', self.reset_cb)
         self.create_timer(10.0, self.log)
+
+    def reset_cb(self, _req, res):
+        self.grid.ox = self.grid.oy = None
+        self.grid._alloc()
+        self.pending = []
+        res.success, res.message = True, 'heightmap vacio'
+        return res
 
     def odom_cb(self, m):
         p = m.pose.pose

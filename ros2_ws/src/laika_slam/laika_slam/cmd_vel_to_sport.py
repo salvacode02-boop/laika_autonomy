@@ -42,6 +42,8 @@ class CmdVelToSport(Node):
             # status de acciones: transient_local, para ver los goals que ya existian al llegar
             qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL)
             self.create_subscription(GoalStatusArray, '/navigate_to_pose/_action/status', self.status_cb, qos)
+            self.session = None  # reinicio de sesion (session_manager): solo puede detener y olvidar la meta
+            self.create_subscription(Int32, '/laika/session_id', self.session_cb, qos)
             keys_topic = self.get_parameter('dry_run_keys_topic').value
             if keys_topic and self.out_topic != '/api/sport/request':
                 self.create_subscription(Int32, keys_topic, lambda m: self.on_event(L.remote_event(m.data, 0)), 10)
@@ -98,6 +100,13 @@ class CmdVelToSport(Node):
             self.moving = False
             self.start_stop()
             self.get_logger().warn('%s: StopMove 1 s, IDLE, aprobación consumida' % why)
+
+    def session_cb(self, m):
+        prev, self.session = self.session, m.data
+        if prev is None or prev == m.data:  # el primer valor (transient_local) no es un cambio
+            return
+        self.sc_result(self.sc.on_session_reset(), 'Sesión nueva')
+        self.goal = self.approved_key = self.goal_msg = None
 
     def status_cb(self, m):
         ids = {bytes(s.goal_info.goal_id.uuid): s.status for s in m.status_list}

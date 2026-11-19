@@ -83,4 +83,14 @@ sc = aprobada(SinCable()); sc.on_event('activate', 100)           # timeout de 9
 assert sc.tick(189.0) is None and sc.tick(190.5) == 'stop' and sc.state == 'IDLE'
 sc = aprobada(SinCable()); sc.on_event('activate', 0)
 assert sc.end() == 'stop' and sc.consumed                         # watchdog
+
+# reinicio de sesion: solo detiene, nunca arranca
+sc = aprobada(SinCable())                                         # aprobada + sesion nueva: R2+X no entra a RUN
+assert sc.on_session_reset() == 'stop' and sc.state == 'IDLE'
+assert sc.on_event('activate', 0) is None and sc.state == 'IDLE'
+sc.on_approved('A'); assert sc.state == 'IDLE'                    # la misma clave no se reaprueba
+sc.on_goal('A'); sc.on_approved('A'); assert sc.state == 'APROBADA'  # meta nueva con el mismo valor si vale
+sc = aprobada(SinCable()); sc.on_event('activate', 0)             # en RUN: StopMove
+assert sc.on_session_reset() == 'stop' and sc.state == 'IDLE' and sc.goal is None
+assert SinCable().on_session_reset() is None                      # en IDLE no manda nada
 print('ok')
