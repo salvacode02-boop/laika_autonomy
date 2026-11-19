@@ -160,7 +160,8 @@ def handeye(bag):
             if ts[j - 1] - ts[k] >= 1.0: runs.append((k, j))
             k = j
         else: k += 1
-    errs, norms = [], []
+    errs, norms, NB, AB = [], [], [], []
+    u2_ = np.array([-0.853, -0.531, 0.015]); u2_ /= np.linalg.norm(u2_)
     for k, j in runs:
         a0, b0 = ts[k] + 0.3, ts[j - 1] - 0.3
         idx = np.flatnonzero((ct >= a0) & (ct <= b0))[:20]
@@ -171,8 +172,20 @@ def handeye(bag):
         if mm.sum() < 50: continue
         am = al[mm].mean(0)
         e = np.degrees(np.arccos(np.clip(am @ (Rbl @ n) / np.linalg.norm(am), -1, 1)))
-        errs.append(e); norms.append(np.linalg.norm(am))
+        errs.append(e); norms.append(np.linalg.norm(am)); NB.append(Rbl @ n); AB.append(am / np.linalg.norm(am))
         print(f'  meseta {a0-ts[0]:7.1f} s: err gravedad {e:5.2f} deg  |a| {norms[-1]:.2f}  n_body {(Rbl@n).round(3)} a_body {(am/np.linalg.norm(am)).round(3)}')
+    if os.environ.get('REFIT'):  # roll/pitch (2-DOF): minimiza |C n - a| con C = exp([tx,ty,0])
+        from scipy.optimize import least_squares
+        NBa, ABa = np.array(NB), np.array(AB)
+        f = lambda th: ((NBa @ expm(np.array([th[0], th[1], 0.0])).T) - ABa).ravel()
+        th = least_squares(f, [0, 0]).x
+        C = expm(np.array([th[0], th[1], 0.0]))
+        print(f'refit: correccion roll(x) {np.degrees(th[0]):+.2f} pitch(y) {np.degrees(th[1]):+.2f} deg')
+        Rbl = C @ Rbl
+        e2 = np.degrees(np.arccos(np.clip(np.sum((NBa @ C.T) * ABa, 1), -1, 1)))
+        print(f'tras refit: err gravedad por meseta {e2.round(2).tolist()}  spread {e2.max()-e2.min():.2f} max {e2.max():.2f} rms {np.sqrt(np.mean(e2**2)):.2f}')
+        errs = e2; print('GATE refit (correccion x<=1, max<=1.5, spread<=1):', abs(np.degrees(th[0])) <= 1 and e2.max() <= 1.5 and e2.max() - e2.min() <= 1)
+        print('eje cabeceo body tras refit', (C @ R @ u2_).round(3))
     errs = np.array(errs); rms = np.sqrt(np.mean(errs ** 2))
     print(f'R_body_lidar = {Rbl.ravel().round(4).tolist()}\n  vs cloud_R actual: {ang(Rbl @ CLOUD_R.T):.1f} deg;  t = {URDF_T.tolist()} (URDF radar_joint)')
     print(f'gravedad: rms {rms:.2f} deg, max {errs.max():.2f}; |a| medio {np.mean(norms):.2f}')

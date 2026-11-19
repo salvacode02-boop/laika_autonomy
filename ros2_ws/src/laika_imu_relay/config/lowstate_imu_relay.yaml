@@ -1,0 +1,6 @@
+lowstate_imu_relay:
+  ros__parameters:
+    lowstate_topic: /lowstate
+    out_topic: /laika/body_imu
+    frame_id: base_link
+    latency: 0.0   # s; +-10 ms por movimiento lento; re-medir con un bag de movimiento rapido

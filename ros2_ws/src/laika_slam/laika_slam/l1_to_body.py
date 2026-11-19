@@ -14,7 +14,7 @@ class L1ToBody(Node):
         super().__init__('l1_to_body')
         for n, d in (('cloud_topic', '/utlidar/cloud'), ('imu_topic', '/utlidar/imu'),
                      ('out_frame', 'body'), ('cloud_R', [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
-                     ('cloud_z_offset', 0.0), ('self_box', [0.0] * 6),
+                     ('cloud_z_offset', 0.0), ('cloud_t', [float('nan')] * 3), ('self_box', [0.0] * 6),
                      ('imu_R', [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
                      ('gyro_bias', [0.0] * 3), ('gyro_scale', 1.0), ('ang_z2x_proj', 0.0),
                      ('ang_z2y_proj', 0.0), ('zero_acc', True)):
@@ -23,6 +23,8 @@ class L1ToBody(Node):
         self.frame = g('out_frame')
         self.cR = np.array(g('cloud_R'), dtype=np.float64).reshape(3, 3)
         self.cz = g('cloud_z_offset')
+        ct = np.array(g('cloud_t'), dtype=np.float64)  # nan = sin definir -> [0, 0, cloud_z_offset] (comportamiento anterior)
+        self.ct = np.array([0.0, 0.0, self.cz]) if np.isnan(ct).any() else ct
         self.box = np.array(g('self_box'), dtype=np.float64)
         self.iR = np.array(g('imu_R'), dtype=np.float64).reshape(3, 3)
         self.bias = np.array(g('gyro_bias'), dtype=np.float64)
@@ -53,7 +55,7 @@ class L1ToBody(Node):
                        'itemsize': msg.point_step})
         a = np.frombuffer(msg.data, dtype=dt, count=msg.width * msg.height).copy()
         p = np.stack([a['x'], a['y'], a['z']], axis=1).astype(np.float64) @ self.cR.T
-        p[:, 2] += self.cz
+        p += self.ct
         b = self.box
         inside = ((p[:, 0] > b[0]) & (p[:, 0] < b[1]) & (p[:, 1] > b[2]) & (p[:, 1] < b[3])
                   & (p[:, 2] > b[4]) & (p[:, 2] < b[5]))
