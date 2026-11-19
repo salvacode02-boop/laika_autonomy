@@ -45,7 +45,66 @@ def windows(t, sig, t0, t1, w=1.0):
     return np.array(out)
 
 
+IMU_A = np.array([[0.9655, 0, 0.2605], [0, -1, 0], [0.2605, 0, -0.9655]])  # imu_R de l1_to_body.yaml (A)
+
+
+def tilt(bag, thr=0.1):
+    """Cabeceo/alabeo de ~10 deg: angulos del acel por candidata vs giro (derivada) y vs odom."""
+    db = sqlite3.connect(glob.glob(os.path.join(bag, '*.db3'))[0])
+    imu = list(leer(db, '/utlidar/imu'))
+    od = list(leer(db, '/utlidar/robot_odom'))
+    ti = np.array([st(m.header) for m in imu]); to = np.array([st(m.header) for m in od])
+    t0 = ti[0]; ti, to = ti - t0, to - t0
+    a_raw = np.array([[m.linear_acceleration.x, m.linear_acceleration.y, m.linear_acceleration.z] for m in imu])
+    w = np.array([[m.angular_velocity.x, m.angular_velocity.y, m.angular_velocity.z] for m in imu]) @ IMU_A.T
+    fs = 1 / np.median(np.diff(ti))
+    q = np.array([[m.pose.pose.orientation.x, m.pose.pose.orientation.y,
+                   m.pose.pose.orientation.z, m.pose.pose.orientation.w] for m in od])
+    Ro = quat_R(q)
+    o_roll = np.interp(ti, to, np.unwrap(np.arctan2(Ro[:, 2, 1], Ro[:, 2, 2])))
+    o_pitch = np.interp(ti, to, -np.arcsin(np.clip(Ro[:, 2, 0], -1, 1)))
+    wm = lp(np.hypot(w[:, 0], w[:, 1])[:, None], fs, 2.0)[:, 0] > thr
+    idx = np.flatnonzero(wm)
+    segs = []
+    for k in idx:  # une huecos < 2 s
+        if segs and ti[k] - segs[-1][1] < 2.0:
+            segs[-1][1] = ti[k]
+        else:
+            segs.append([ti[k], ti[k]])
+    segs = [(a - 1.0, b + 1.0) for a, b in segs if b - a > 0.5]
+    print(f'IMU {len(ti)} msgs fs {fs:.0f} Hz; umbral |w_xy| {thr} rad/s; segmentos de giro:')
+    for a, b in segs:
+        print(f'  {a:7.1f} - {b:7.1f} s  ({b-a:.1f} s)')
+    if not segs:
+        print('INCONCLUSO: sin segmentos'); sys.exit(1)
+    m = np.zeros(len(ti), bool)
+    for a, b in segs:
+        m |= (ti >= a) & (ti <= b)
+    ok_all = {}
+    for n, R in CANDS.items():
+        ab = a_raw @ R.T
+        roll = np.arctan2(ab[:, 1], ab[:, 2])
+        pitch = np.arctan2(-ab[:, 0], np.hypot(ab[:, 1], ab[:, 2]))
+        print(f'\n{n}:')
+        ok = True
+        for nm, ang, gi, oa in (('roll', roll, 0, o_roll), ('pitch', pitch, 1, o_pitch)):
+            f = lp(ang[:, None], fs, 2.0)[:, 0]
+            d = np.gradient(f, ti)
+            gl = lp(w[:, gi:gi + 1], fs, 2.0)[:, 0]
+            c1 = np.corrcoef(d[m], gl[m])[0, 1]; s1 = reg(gl[m], d[m])[0]
+            c2 = np.corrcoef(f[m], oa[m])[0, 1]; s2 = reg(oa[m], f[m])[0]
+            print(f'  {nm}: d(ang)/dt vs gyro  corr {c1:+.3f} pend {s1:+.3f} | ang vs odom  corr {c2:+.3f} pend {s2:+.3f}')
+            ok &= bool(s1 > 0.7 and c1 > 0.8)
+        ok_all[n] = ok
+    win = [n for n, v in ok_all.items() if v]
+    if len(win) != 1:
+        print(f'INCONCLUSO: ganadoras {win} (se exige pend>0.7 y corr>0.8 en roll y pitch)'); sys.exit(1)
+    print(f'\nElegida: {win[0]}; acc_R = {CANDS[win[0]].ravel().round(4).tolist()}')
+
+
 def main():
+    if sys.argv[1] == '--tilt':
+        return tilt(sys.argv[2])
     db = sqlite3.connect(glob.glob(os.path.join(sys.argv[1], '*.db3'))[0])
     imu = list(leer(db, '/utlidar/imu'))
     ti = np.array([st(m.header) for m in imu])
