@@ -104,13 +104,19 @@ def main():
             continue
         pts = np.vstack([cloud_xyz(ct[i][1]) for i in idx])
         n, res, nn = floor_normal(pts)
+        h = len(idx) // 2
+        n1, n2 = floor_normal(np.vstack([cloud_xyz(ct[i][1]) for i in idx[:h]]))[0], floor_normal(np.vstack([cloud_xyz(ct[i][1]) for i in idx[h:]]))[0]
+        am1, am2 = a[k2:(k2 + j2) // 2].mean(0), a[(k2 + j2) // 2:j2].mean(0)
+        dn = np.degrees(np.arccos(np.clip(n1 @ n2, -1, 1)))
+        da = np.degrees(np.arccos(np.clip(am1 @ am2 / np.linalg.norm(am1) / np.linalg.norm(am2), -1, 1)))
         am = a[k2:j2].mean(0)
-        pl.append(dict(t0=t0, t1=t1, n=n, res=res, a=am / np.linalg.norm(am), wm=w[k2:j2].mean(0), k=k2, j=j2))
+        pl.append(dict(dn=dn, da=da, t0=t0, t1=t1, n=n, res=res, a=am / np.linalg.norm(am), wm=w[k2:j2].mean(0), k=k2, j=j2))
         print(f'  {t0-ti[0]:7.1f}-{t1-ti[0]:7.1f} s  nclouds {len(idx)}  res piso {res*100:.2f} cm  n {n.round(3)}  a/|a| {pl[-1]["a"].round(3)}')
     if len(pl) < 3:
         print('FALLA: <3 mesetas con piso'); sys.exit(1)
-    bad = [p for p in pl if p['res'] > 0.015]
-    pl = [p for p in pl if p['res'] <= 0.015]
+    bad = [p for p in pl if p['res'] > 0.015 or p['dn'] > 0.5 or p['da'] > 0.5]
+    pl = [p for p in pl if p['res'] <= 0.015 and p['dn'] <= 0.5 and p['da'] <= 0.5]
+    print('estables (res<1.5 cm, dn<0.5, da<0.5 deg):', [(round(p['t0']-ti[0]), round(p['dn'],2), round(p['da'],2)) for p in pl])
     if bad:
         print(f'descartadas {len(bad)} mesetas con residuo > 1.5 cm')
     N = np.array([p['n'] for p in pl]); Aa = np.array([p['a'] for p in pl])
