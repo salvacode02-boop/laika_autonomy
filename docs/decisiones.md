@@ -310,3 +310,13 @@ Puente armado, sin Nav2. Las órdenes las genera `scripts/prueba_movimiento.py`.
   - Las piernas aparecen simétricas en y.
 - `self_box` rehecho en el marco nuevo. `l1_to_body.yaml` y Point-LIO quedan sin tocar.
 - Pendiente: medir la latencia con un bag de movimiento rápido. Validar el yaw en B5 (dirección de avance de LIO contra +x a ≤ 5°).
+
+## 2026-11-19: FAST_LIO_ROS2 compilado en el robot (B4)
+
+- `Ericsii/FAST_LIO_ROS2`, rama `ros2`, SHA 2fffc570 (ikd-Tree e2e3f4e9). Se trae con `scripts/traer_fast_lio.sh` y se compila en `~/laika_ws` del robot (Release, -j2, 2 min). Sin apt ni sudo.
+- `livox_ros_driver2`: paquete de solo mensajes (copiados de Livox-SDK, MIT), porque FAST-LIO incluye sus headers sin guarda.
+- `patches/fast_lio_foxy.patch`:
+  - Se quita `pcl_ros`: no está en el robot y nada lo usa.
+  - Se agrega `tf2_ros` explícito; antes llegaba a través de `pcl_ros`.
+  - PCL con el componente `filters`, que necesita `VoxelGrid`.
+  - El callback de `map_save` recibe `SharedPtr` en vez de `ConstSharedPtr`, porque Foxy no acepta la versión const.
