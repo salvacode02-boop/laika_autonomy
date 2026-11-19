@@ -5,6 +5,7 @@
 #   scripts/laika_fase4.sh --prueba  dry-run: el puente publica en /laika/sport_request_dry y se activa solo
 #   scripts/laika_fase4.sh --slam    en vez del mapa guardado, hace el mapa en vivo (slam_toolbox) y navega sobre él
 #   scripts/laika_fase4.sh --sin-cable  MODO SIN CABLE (combinable con --slam y --prueba), ver abajo
+#   --lio  modo sombra de FAST-LIO (panel extra "lio": LIO + lio_compare); no combina con --sin-cable. No mover el robot 5 s al arrancar
 #   --mapa <ruta .yaml>  localiza sobre ese mapa (copia .pgm+.yaml al robot, ~/laika_maps/); si no es fase2_cuarto1 no hay pose de la marca
 #   --sin-attach  no hace tmux attach al final (lo usa el dashboard);  --sin-rviz  sin ventana de RViz
 #   scripts/laika_fase4_parar.sh     detiene todo en orden
@@ -31,7 +32,7 @@ MARCA='{header: {frame_id: map}, pose: {pose: {position: {x: 0.034, y: 0.027}, o
 
 ATTACH=1; RVIZ=1; MAPA_LOCAL=''; MAPA_ARG=''; MARCA_OK=1
 SALIDA=/api/sport/request; EXTRA=''; MODO='ARMADO'
-BASE=localization.launch.py; MAPA='mapa guardado (AMCL)'; NAVARGS=''; SINCABLE=0
+BASE=localization.launch.py; MAPA='mapa guardado (AMCL)'; NAVARGS=''; SINCABLE=0; LIO=0
 while [ $# -gt 0 ]; do
   a=$1; shift
   case $a in
@@ -40,12 +41,14 @@ while [ $# -gt 0 ]; do
     --mapa) MAPA_LOCAL=${1:?--mapa necesita la ruta de un .yaml}; shift ;;
     --prueba) SALIDA=/laika/sport_request_dry; EXTRA='-p dry_run_force_active:=true'; MODO='PRUEBA (dry-run)' ;;
     --sin-cable) SINCABLE=1 ;;
+    --lio) LIO=1 ;;
     --slam) BASE=mapping.launch.py; MAPA='mapa en vivo (slam_toolbox)'
             NAVARGS='planner_yaml:=/home/unitree/laika_ws/install/laika_slam/share/laika_slam/config/planner_slam.yaml' ;;
-    *) echo "Opción desconocida: $a (usa --prueba, --slam, --sin-cable, --mapa <yaml>, --sin-attach, --sin-rviz)"; exit 1 ;;
+    *) echo "Opción desconocida: $a (usa --prueba, --slam, --lio, --sin-cable, --mapa <yaml>, --sin-attach, --sin-rviz)"; exit 1 ;;
   esac
 done
 
+[ $LIO = 1 ] && [ $SINCABLE = 1 ] && { echo "--lio y --sin-cable son excluyentes (por ahora)."; exit 1; }
 [ -n "$MAPA_LOCAL" ] && [ $BASE = mapping.launch.py ] && { echo "--mapa y --slam son excluyentes."; exit 1; }
 tmux has-session -t $S 2>/dev/null && { echo "Ya existe la sesión $S. Entra con: tmux attach -t $S (o párala con scripts/laika_fase4_parar.sh)"; exit 1; }
 ssh -o ConnectTimeout=5 $ROBOT true || { echo "No hay SSH al robot ($ROBOT)."; exit 1; }
@@ -109,6 +112,9 @@ panel() {  # panel <título> <comando>
 tmux select-pane -t "$P_BASE" -T base
 panel puente "$CMD_PUENTE; read -p 'puente terminó. Enter para cerrar'" > /dev/null
 panel nav "$CMD_NAV; read -p 'nav terminó. Enter para cerrar'" > /dev/null
+if [ $LIO = 1 ]; then  # modo sombra: LIO + lio_compare (no publica TF ni mueve nada)
+  panel lio "ssh -t $ROBOT \"$ENV_R && echo 'No mover el robot 5 s' && ros2 launch laika_slam fast_lio.launch.py compare:=true\"; read -p 'lio terminó. Enter para cerrar'" > /dev/null
+fi
 # Desde el dashboard (--sin-attach) no hay panel aprobar: el dashboard aprueba y es el ÚNICO hombre muerto
 # (si aprobar_rutas.py corriera detrás, cerrar el dashboard no detendría el robot).
 if [ $ATTACH = 1 ]; then
